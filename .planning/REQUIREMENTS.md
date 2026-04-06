@@ -49,8 +49,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Git Metadata
 
-- [ ] **META-01**: At deploy time, tool extracts commit history between the current deployment and the previous deployment of the same version (or all commits if first deployment)
-- [ ] **META-02**: Extracted metadata includes: commit SHA, author name/email, commit message, and timestamp for each commit
+- [x] **META-01**: At deploy time, tool extracts commit history between the current deployment and the previous deployment of the same version (or all commits if first deployment)
+- [x] **META-02**: Extracted metadata includes: commit SHA, author name/email, commit message, and timestamp for each commit
 - [ ] **META-03**: All metadata is stored in the manifest and available to the index page and widget
 
 ## v2 Requirements
@@ -116,8 +116,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GHUB-03 | Phase 1 | Complete |
 | GHUB-04 | Phase 5 | Pending |
 | GHUB-05 | Phase 5 | Pending |
-| META-01 | Phase 2 | Pending |
-| META-02 | Phase 2 | Pending |
+| META-01 | Phase 2 | Complete |
+| META-02 | Phase 2 | Complete |
 | META-03 | Phase 2 | Pending |
 
 **Coverage:**
