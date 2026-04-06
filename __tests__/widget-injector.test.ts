@@ -3,6 +3,12 @@ import { mkdtemp, writeFile, readFile, mkdir, chmod, rm } from 'node:fs/promises
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as core from '@actions/core';
+
+vi.mock('@actions/core', () => ({
+  info: vi.fn(),
+  warning: vi.fn(),
+}));
+
 import {
   getWidgetScriptTag,
   injectWidgetIntoHtmlFiles,
@@ -15,7 +21,8 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(workdir, { recursive: true, force: true });
-  vi.restoreAllMocks();
+  vi.mocked(core.info).mockClear();
+  vi.mocked(core.warning).mockClear();
 });
 
 const opts = {
@@ -165,7 +172,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     expect(await readFile(path.join(workdir, 'app.js'), 'utf8')).toBe(js);
     expect(await readFile(path.join(workdir, 'data.json'), 'utf8')).toBe(json);
     expect(await readFile(path.join(workdir, 'pic.svg'), 'utf8')).toBe(svg);
-    expect(Buffer.equals(await readFile(path.join(workdir, 'image.png')), png)).toBe(true);
+    expect((await readFile(path.join(workdir, 'image.png'))).equals(png)).toBe(true);
     expect(await readFile(path.join(workdir, 'index.html'), 'utf8')).toContain(WIDGET_MARKER);
   });
 
@@ -178,7 +185,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
   });
 
   it('Test 15: missing </body>, fallback to </html> (D-14)', async () => {
-    const warnSpy = vi.spyOn(core, 'warning').mockImplementation(() => {});
+    const warnMock = vi.mocked(core.warning);
     const file = path.join(workdir, 'index.html');
     await writeFile(file, '<html><h1>no body close</h1></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
@@ -186,29 +193,29 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const content = await readFile(file, 'utf8');
     expect(content).toContain(WIDGET_MARKER);
     expect(content).toMatch(/<\/script>\s*<\/html>/);
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(warnMock).not.toHaveBeenCalled();
   });
 
   it('Test 16: missing </body> AND </html>, append+warn (D-14)', async () => {
-    const warnSpy = vi.spyOn(core, 'warning').mockImplementation(() => {});
+    const warnMock = vi.mocked(core.warning);
     const file = path.join(workdir, 'frag.html');
     await writeFile(file, '<h1>fragment</h1>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
     expect(n).toBe(1);
     const content = await readFile(file, 'utf8');
     expect(content).toContain(WIDGET_MARKER);
-    expect(warnSpy).toHaveBeenCalled();
-    const msg = (warnSpy.mock.calls[0]?.[0] as string) || '';
+    expect(warnMock).toHaveBeenCalled();
+    const msg = (warnMock.mock.calls[0]?.[0] as string) || '';
     expect(msg).toContain('frag.html');
   });
 
   it('Test 17: zero html files no-op success (D-17)', async () => {
-    const infoSpy = vi.spyOn(core, 'info').mockImplementation(() => {});
+    const infoMock = vi.mocked(core.info);
     await writeFile(path.join(workdir, 'style.css'), 'body{}', 'utf8');
     await writeFile(path.join(workdir, 'data.json'), '{}', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
     expect(n).toBe(0);
-    const calls = infoSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    const calls = infoMock.mock.calls.map((c) => String(c[0])).join('\n');
     expect(/0 HTML|no widget injection/i.test(calls)).toBe(true);
   });
 
