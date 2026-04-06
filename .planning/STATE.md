@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-04-06T12:02:22.815Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-04-06T12:17:45.832Z"
 last_activity: 2026-04-06
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_plans: 8
+  completed_plans: 6
+  percent: 75
 ---
 
 # Project State
@@ -57,6 +57,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01-core-deployment-pipeline P03 | ~10min | 2 tasks | 5 files |
 | Phase 02-git-metadata-extraction P01 | 10min | 3 tasks | 3 files |
 | Phase 02-git-metadata-extraction P02 | 8min | 3 tasks | 6 files |
+| Phase 03-rich-index-page P01 | 8m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,7 @@ Recent decisions affecting current work:
 - [Phase 01-core-deployment-pipeline]: sanitizeRef splits-and-drops '..' segments structurally rather than using a reject-list regex (T-01-01 structural mitigation)
 - [Phase 01-core-deployment-pipeline]: content-placer uses node:fs/promises rather than @actions/io to remain unit-testable without an Actions runtime
 - [Phase 02-git-metadata-extraction]: D-02 applied: manifest reader accepts schema 1|2, writer always emits schema 2
+- [Phase 03-rich-index-page]: renderIndexHtml derives footer timestamp from manifest (not wall clock) to preserve pure-function contract
 
 ### Pending Todos
 
@@ -84,6 +86,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T12:02:22.812Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-04-06T12:17:45.829Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

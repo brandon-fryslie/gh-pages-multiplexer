@@ -24,12 +24,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Index Page
 
-- [ ] **INDX-01**: An auto-generated index.html at the root of gh-pages displays all deployed versions
+- [x] **INDX-01**: An auto-generated index.html at the root of gh-pages displays all deployed versions
 - [ ] **INDX-02**: Index page shows a timeline view of deployments with version name, date, and git ref
 - [ ] **INDX-03**: Index page displays per-version commit history (commits that went into each deployment)
 - [ ] **INDX-04**: Index page shows author information and commit metadata for each version
 - [ ] **INDX-05**: Index page has a modern, well-designed UI that works on desktop and mobile
-- [ ] **INDX-06**: Index page is regenerated on each deployment from the manifest
+- [x] **INDX-06**: Index page is regenerated on each deployment from the manifest
 
 ### Navigation Widget
 
@@ -100,12 +100,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MNFST-02 | Phase 2 | Complete |
 | MNFST-03 | Phase 2 | Complete |
 | MNFST-04 | Phase 1 | Complete |
-| INDX-01 | Phase 3 | Pending |
+| INDX-01 | Phase 3 | Complete |
 | INDX-02 | Phase 3 | Pending |
 | INDX-03 | Phase 3 | Pending |
 | INDX-04 | Phase 3 | Pending |
 | INDX-05 | Phase 3 | Pending |
-| INDX-06 | Phase 3 | Pending |
+| INDX-06 | Phase 3 | Complete |
 | NAVW-01 | Phase 4 | Pending |
 | NAVW-02 | Phase 4 | Pending |
 | NAVW-03 | Phase 4 | Pending |
