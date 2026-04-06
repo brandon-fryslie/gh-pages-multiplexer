@@ -66,7 +66,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md — index-renderer skeleton: pure renderIndexHtml + escapeHtml + empty/legacy edge cases with failing-then-green tests
-- [ ] 03-02-PLAN.md — full UI-SPEC rendering: cards + inline CSS (light/dark/mobile) + XSS payload tests + html-validate gate
+- [x] 03-02-PLAN.md — full UI-SPEC rendering: cards + inline CSS (light/dark/mobile) + XSS payload tests + html-validate gate
 - [ ] 03-03-PLAN.md — wire writeIndexHtml into pipeline, integration test asserting index.html lands in deploy commit, rebuild dist bundle
 
 ### Phase 4: Navigation Widget
