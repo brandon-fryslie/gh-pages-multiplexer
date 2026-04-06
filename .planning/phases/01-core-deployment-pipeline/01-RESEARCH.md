@@ -408,22 +408,19 @@ async function commitAndPush(workdir: string, context: DeploymentContext, maxRet
 | A3 | The official template's move to Rollup means ncc is no longer recommended | State of the Art | ncc still works fine; Rollup is just the new default in the template. Choosing either is valid. |
 | A4 | `git rebase origin/gh-pages` in the retry loop is safe because each deployment adds to non-overlapping paths | Code Examples | Two deploys to the SAME version slot would conflict during rebase. Concurrency groups (D-07) prevent this in practice. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Node 20 vs Node 24 (D-01 conflict)**
    - What we know: User locked D-01 as `runs.using: node20`. GitHub deprecated node20, official template uses node24, runners default to node24 June 2026.
-   - What's unclear: Whether user is aware of the deprecation timeline.
-   - Recommendation: Planner should flag for user -- recommend `node24` given current date (April 2026). Code itself has no node-version-specific dependencies; switching is a one-line change in action.yml.
+   - RESOLVED: Use `node20` per D-01 locked decision. Add TODO comment in action.yml noting the deprecation timeline. Code has no node-version-specific dependencies; switching to `node24` is a one-line change when the user is ready. Research noted the conflict; planner honored the user's decision.
 
 2. **Full URL rewriting scope (D-10)**
    - What we know: D-10 says "rewriting src, href, and similar attributes" for sites with absolute paths.
-   - What's unclear: Exactly which attributes to rewrite, how to handle CSS `url()` references, whether to parse CSS files too.
-   - Recommendation: Phase 1 implements base-tag mode (D-09) as default. URL rewriting mode (D-10) rewrites `src` and `href` attributes in HTML only. CSS `url()` rewriting is deferred unless user requests it.
+   - RESOLVED: Phase 1 URL rewriting mode rewrites `src` and `href` attributes in HTML only. These two attributes cover the vast majority of root-relative URL references in static site output. CSS `url()` rewriting is out of scope for Phase 1 -- can be added later if users request it.
 
 3. **Ref pattern matching syntax (DEPL-03)**
    - What we know: Users need to filter which refs trigger deployment.
-   - What's unclear: Whether to use glob patterns, regex, or both.
-   - Recommendation: Use glob patterns (simpler, matches GitHub Actions `on.push.tags` syntax). `minimatch` or `picomatch` for matching.
+   - RESOLVED: Use glob patterns via `picomatch` library. Glob syntax is simpler than regex and matches the conventions users already know from GitHub Actions `on.push.tags` patterns and `.gitignore`. `picomatch` chosen over `minimatch` for smaller bundle size and better performance.
 
 ## Environment Availability
 
@@ -471,6 +468,7 @@ No missing dependencies. All required tools are available locally and are guaran
 - [ ] `__tests__/manifest-manager.test.ts` -- covers MNFST-01, MNFST-04
 - [ ] `__tests__/content-placer.test.ts` -- covers DEPL-01
 - [ ] `__tests__/base-path.test.ts` -- covers DEPL-04
+- [ ] `__tests__/inputs.test.ts` -- covers GHUB-02
 - [ ] Framework install: `npm install -D vitest@4`
 
 ## Security Domain
