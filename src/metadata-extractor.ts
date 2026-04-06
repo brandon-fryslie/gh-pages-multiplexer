@@ -7,7 +7,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { access } from 'node:fs/promises';
+import { stat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
 import type { CommitInfo } from './types.js';
@@ -22,9 +22,16 @@ const FORMAT = `%H${FIELD_SEP}%an${FIELD_SEP}%ae${FIELD_SEP}%aI${FIELD_SEP}%B${R
 const UNREACHABLE_TAG = 'GHPM_UNREACHABLE_REV';
 
 async function isShallowRepo(repoDir: string): Promise<boolean> {
+  // [LAW:dataflow-not-control-flow] The shallow state is the data: a present-but-empty
+  // .git/shallow file (left behind by actions/checkout@v4 with fetch-depth: 0 after it
+  // unshallows) is NOT a real shallow clone. Only a non-empty shallow list means history
+  // is actually truncated.
   try {
-    await access(path.join(repoDir, '.git', 'shallow'));
-    return true;
+    const shallowPath = path.join(repoDir, '.git', 'shallow');
+    const s = await stat(shallowPath);
+    if (s.size === 0) return false;
+    const contents = await readFile(shallowPath, 'utf8');
+    return contents.trim().length > 0;
   } catch {
     return false;
   }

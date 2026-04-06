@@ -1,4 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+vi.mock('@actions/core', () => ({
+  warning: vi.fn(),
+  info: vi.fn(),
+  setSecret: vi.fn(),
+}));
+
 import * as core from '@actions/core';
 import {
   upsertPreviewComment,
@@ -51,14 +58,10 @@ const OPTS = {
   version: 'v1',
 };
 
-let warnSpy: ReturnType<typeof vi.spyOn>;
+const warnSpy = vi.mocked(core.warning);
 
 beforeEach(() => {
-  warnSpy = vi.spyOn(core, 'warning').mockImplementation(() => {});
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
+  warnSpy.mockClear();
 });
 
 describe('upsertPreviewComment', () => {

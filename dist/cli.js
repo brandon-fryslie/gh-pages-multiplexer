@@ -31898,8 +31898,10 @@ async function prepareBranch(config) {
     // Embed token in remote URL. Actions log masking + core.setSecret on token mitigates T-01-08.
     const remoteUrl = `https://x-access-token:${config.token}@github.com/${config.repo}.git`;
     await git(['remote', 'set-url', 'origin', remoteUrl]);
-    // Fetch target branch (shallow). Exit code tells us if the branch exists.
-    const fetchCode = await git(['fetch', 'origin', config.targetBranch, '--depth=1']);
+    // Fetch target branch. Full depth: a --depth=1 fetch can shallow the source repo,
+    // which breaks metadata-extractor's `git log` over ranges that predate gh-pages history.
+    // gh-pages branches are small; the full fetch is fine.
+    const fetchCode = await git(['fetch', 'origin', config.targetBranch]);
     if (fetchCode === 0) {
         // Branch exists: create a worktree pointing at the remote tip.
         await git(['worktree', 'add', workdir, `origin/${config.targetBranch}`]);
@@ -32131,9 +32133,17 @@ const RECORD_SEP = '\x1e';
 const FORMAT = `%H${FIELD_SEP}%an${FIELD_SEP}%ae${FIELD_SEP}%aI${FIELD_SEP}%B${RECORD_SEP}`;
 const UNREACHABLE_TAG = 'GHPM_UNREACHABLE_REV';
 async function isShallowRepo(repoDir) {
+    // [LAW:dataflow-not-control-flow] The shallow state is the data: a present-but-empty
+    // .git/shallow file (left behind by actions/checkout@v4 with fetch-depth: 0 after it
+    // unshallows) is NOT a real shallow clone. Only a non-empty shallow list means history
+    // is actually truncated.
     try {
-        await promises.access(path$1.join(repoDir, '.git', 'shallow'));
-        return true;
+        const shallowPath = path$1.join(repoDir, '.git', 'shallow');
+        const s = await promises.stat(shallowPath);
+        if (s.size === 0)
+            return false;
+        const contents = await promises.readFile(shallowPath, 'utf8');
+        return contents.trim().length > 0;
     }
     catch {
         return false;
