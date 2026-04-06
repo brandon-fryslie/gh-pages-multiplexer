@@ -96,7 +96,7 @@ Plans:
 
 Plans:
 - [x] 05-01-PLAN.md — Refactor: extract deploy() from src/index.ts into src/deploy.ts (no behavior change, 139 tests still green)
-- [ ] 05-02-PLAN.md — CLI adapter (src/cli.ts), PR sticky comment (src/pr-commenter.ts), wire into Action, two-bundle rollup, dist rebuild
+- [x] 05-02-PLAN.md — CLI adapter (src/cli.ts), PR sticky comment (src/pr-commenter.ts), wire into Action, two-bundle rollup, dist rebuild
 
 ## Progress
 

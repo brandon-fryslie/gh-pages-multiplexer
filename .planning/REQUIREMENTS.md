@@ -45,7 +45,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **GHUB-02**: Action accepts inputs: source directory, version name (optional, defaults to git ref), ref patterns, target branch
 - [x] **GHUB-03**: Action works in standard GitHub Actions runner environment (Linux, git available, GITHUB_TOKEN)
 - [x] **GHUB-04**: Tool is also usable as a CLI (`npx gh-pages-multiplexer deploy`) for use in custom CI scripts
-- [ ] **GHUB-05**: After deploying a PR preview, the Action posts a sticky comment on the PR with the preview URL
+- [x] **GHUB-05**: After deploying a PR preview, the Action posts a sticky comment on the PR with the preview URL
 
 ### Git Metadata
 
@@ -115,7 +115,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GHUB-02 | Phase 1 | Complete |
 | GHUB-03 | Phase 1 | Complete |
 | GHUB-04 | Phase 5 | Complete |
-| GHUB-05 | Phase 5 | Pending |
+| GHUB-05 | Phase 5 | Complete |
 | META-01 | Phase 2 | Complete |
 | META-02 | Phase 2 | Complete |
 | META-03 | Phase 2 | Complete |
