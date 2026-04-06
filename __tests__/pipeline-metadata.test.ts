@@ -17,6 +17,7 @@ vi.mock('@actions/core', () => ({
 
 import { extractCommits } from '../src/metadata-extractor.js';
 import { readManifest, updateManifest, writeManifest } from '../src/manifest-manager.js';
+import { writeIndexHtml } from '../src/branch-manager.js';
 import type { Manifest, ManifestEntry } from '../src/types.js';
 
 const exec = promisify(execFile);
@@ -150,6 +151,99 @@ describe('pipeline metadata end-to-end', () => {
     expect(manifest.versions[0].commits).toHaveLength(1);
     expect(manifest.versions[1].version).toBe('v0');
     expect(manifest.versions[1].commits).toBeUndefined();
+  });
+
+  // ---- index.html-in-deploy-commit assertions (Plan 03-03) ----
+  // These use a git-backed workdir so we can assert index.html and versions.json
+  // land in the SAME commit via `git log -1 --name-only`.
+
+  async function makeGitWorkdir(): Promise<string> {
+    const dir = await mkdtemp(path.join(tmpdir(), 'ghpm-pipe-ghp-'));
+    await git(dir, 'init', '-q', '-b', 'gh-pages');
+    await git(dir, 'config', 'user.email', 'bot@example.com');
+    await git(dir, 'config', 'user.name', 'Bot');
+    await git(dir, 'config', 'commit.gpgsign', 'false');
+    return dir;
+  }
+
+  async function runDeployStage(
+    workdir: string,
+    sourceRepo: string,
+    slot: string,
+    headSha: string,
+  ): Promise<void> {
+    const manifest = await readManifest(workdir);
+    const previousSha = manifest.versions.find((v) => v.version === slot)?.sha ?? null;
+    const commits = await extractCommits(sourceRepo, headSha, previousSha);
+    const entry: ManifestEntry = {
+      version: slot,
+      ref: `refs/tags/${slot}`,
+      sha: headSha,
+      timestamp: new Date().toISOString(),
+      commits,
+    };
+    const updated = updateManifest(manifest, entry);
+    await writeManifest(workdir, updated);
+    await writeIndexHtml(workdir, updated, { owner: 'acme', repo: 'widgets' });
+    await git(workdir, 'add', '-A');
+    await git(workdir, 'commit', '-q', '-m', `Deploy ${slot}`);
+  }
+
+  describe('index.html in deploy commit', () => {
+    it('INDX-01: index.html and versions.json land in the same commit', async () => {
+      const repo = await track(makeRepo());
+      const workdir = await track(makeGitWorkdir());
+      const sha = await commitFile(repo, 'x', 'init');
+      await runDeployStage(workdir, repo, 'v1.2.3', sha);
+
+      const nameOnly = await git(workdir, 'log', '-1', '--name-only', '--pretty=format:');
+      const files = new Set(nameOnly.split('\n').map((s) => s.trim()).filter(Boolean));
+      expect(files.has('versions.json')).toBe(true);
+      expect(files.has('index.html')).toBe(true);
+    });
+
+    it('INDX-01: HEAD:index.html is well-formed HTML containing the deployed version slug', async () => {
+      const repo = await track(makeRepo());
+      const workdir = await track(makeGitWorkdir());
+      const sha = await commitFile(repo, 'x', 'init');
+      await runDeployStage(workdir, repo, 'v1.2.3', sha);
+
+      const content = await git(workdir, 'show', 'HEAD:index.html');
+      expect(content.length).toBeGreaterThan(0);
+      expect(content.toLowerCase().startsWith('<!doctype html')).toBe(true);
+      expect(content).toContain('v1.2.3');
+    });
+
+    it('INDX-06: redeploy with a new version overwrites index.html with fresh content', async () => {
+      const repo = await track(makeRepo());
+      const workdir = await track(makeGitWorkdir());
+      const s1 = await commitFile(repo, '1', 'first');
+      await runDeployStage(workdir, repo, 'v1.0.0', s1);
+      const first = await git(workdir, 'show', 'HEAD:index.html');
+
+      const s2 = await commitFile(repo, '2', 'second');
+      await runDeployStage(workdir, repo, 'v2.0.0', s2);
+      const second = await git(workdir, 'show', 'HEAD:index.html');
+
+      expect(second).not.toBe(first);
+      expect(second).toContain('v2.0.0');
+      expect(first).not.toContain('v2.0.0');
+    });
+
+    it('INDX-01: first-ever deploy on fresh branch produces index.html alongside versions.json', async () => {
+      const repo = await track(makeRepo());
+      const workdir = await track(makeGitWorkdir());
+      // No prior commits on gh-pages branch — this is the first-ever deploy.
+      const sha = await commitFile(repo, 'x', 'init');
+      await runDeployStage(workdir, repo, 'v0.1.0', sha);
+
+      const nameOnly = await git(workdir, 'log', '-1', '--name-only', '--pretty=format:');
+      const files = new Set(nameOnly.split('\n').map((s) => s.trim()).filter(Boolean));
+      expect(files.has('versions.json')).toBe(true);
+      expect(files.has('index.html')).toBe(true);
+      const content = await git(workdir, 'show', 'HEAD:index.html');
+      expect(content).toContain('v0.1.0');
+    });
   });
 
   it('E2E-4: different version slots isolate their commit histories', async () => {
