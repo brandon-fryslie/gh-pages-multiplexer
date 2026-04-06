@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Project scaffold: package.json, TypeScript, Rollup, Vitest, action.yml, types, entry point stub
+- [x] 01-01-PLAN.md — Project scaffold: package.json, TypeScript, Rollup, Vitest, action.yml, types, entry point stub
 - [ ] 01-02-PLAN.md — Core logic modules: ref-resolver, base-path, content-placer, manifest-manager with tests
 - [ ] 01-03-PLAN.md — Git operations (branch-manager), full pipeline wiring, integration test, dist/index.js build
 

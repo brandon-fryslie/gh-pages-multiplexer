@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-04-06T01:57:01.926Z"
-last_activity: 2026-04-06 -- Phase 1 planning complete
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-04-06T06:20:53.875Z"
+last_activity: 2026-04-06
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-04-05)
 ## Current Position
 
 Phase: 1 of 5 (Core Deployment Pipeline)
-Plan: 0 of 3 in current phase
+Plan: 1 of 3 in current phase
 Status: Ready to execute
-Last activity: 2026-04-06 -- Phase 1 planning complete
+Last activity: 2026-04-06
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,7 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-core-deployment-pipeline P01 | 5min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Recent decisions affecting current work:
 - [Roadmap]: Manifest schema and Action packaging are Phase 1 scope -- the tool IS a GitHub Action from day one
 - [Roadmap]: Git metadata extraction is its own phase (2) because enriching manifest entries is substantial and the index/widget depend on that data
 - [Roadmap]: Phase 4 (Widget) depends only on Phase 1, not Phase 3 -- widget and index are independent consumers of the manifest
+- [Phase 01-core-deployment-pipeline]: Rollup TS plugin outDir overridden to ./dist; tsconfig.json remains source of truth for other TS options
 
 ### Pending Todos
 
@@ -75,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-05T23:28:22.932Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-core-deployment-pipeline/01-CONTEXT.md
+Last session: 2026-04-06T06:20:53.872Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None

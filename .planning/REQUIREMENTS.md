@@ -41,9 +41,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### GitHub Integration
 
-- [ ] **GHUB-01**: Tool is packaged as a GitHub Action consumable via `uses: owner/action@v1`
-- [ ] **GHUB-02**: Action accepts inputs: source directory, version name (optional, defaults to git ref), ref patterns, target branch
-- [ ] **GHUB-03**: Action works in standard GitHub Actions runner environment (Linux, git available, GITHUB_TOKEN)
+- [x] **GHUB-01**: Tool is packaged as a GitHub Action consumable via `uses: owner/action@v1`
+- [x] **GHUB-02**: Action accepts inputs: source directory, version name (optional, defaults to git ref), ref patterns, target branch
+- [x] **GHUB-03**: Action works in standard GitHub Actions runner environment (Linux, git available, GITHUB_TOKEN)
 - [ ] **GHUB-04**: Tool is also usable as a CLI (`npx gh-pages-multiplexer deploy`) for use in custom CI scripts
 - [ ] **GHUB-05**: After deploying a PR preview, the Action posts a sticky comment on the PR with the preview URL
 
@@ -111,9 +111,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NAVW-03 | Phase 4 | Pending |
 | NAVW-04 | Phase 4 | Pending |
 | NAVW-05 | Phase 4 | Pending |
-| GHUB-01 | Phase 1 | Pending |
-| GHUB-02 | Phase 1 | Pending |
-| GHUB-03 | Phase 1 | Pending |
+| GHUB-01 | Phase 1 | Complete |
+| GHUB-02 | Phase 1 | Complete |
+| GHUB-03 | Phase 1 | Complete |
 | GHUB-04 | Phase 5 | Pending |
 | GHUB-05 | Phase 5 | Pending |
 | META-01 | Phase 2 | Pending |
