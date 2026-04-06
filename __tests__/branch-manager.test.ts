@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile as fsReadFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -14,7 +14,9 @@ vi.mock('@actions/core', () => ({
 }));
 
 import * as exec from '@actions/exec';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml } from '../src/branch-manager.js';
+import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
+import { WIDGET_MARKER } from '../src/widget-injector.js';
+import { placeContent } from '../src/content-placer.js';
 import { renderIndexHtml } from '../src/index-renderer.js';
 import type { DeployConfig, DeploymentContext, Manifest } from '../src/types.js';
 import { readFile } from 'node:fs/promises';
@@ -235,5 +237,137 @@ describe('writeIndexHtml', () => {
     await writeIndexHtml(dir, manifest, repoMeta);
     const second = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(first).toBe(second);
+  });
+});
+
+describe('widget injection in deploy pipeline', () => {
+  let workdir: string;
+  let sourceDir: string;
+  const versionSlot = 'v1.0.0';
+  const repoMeta = { owner: 'acme', repo: 'widgets' };
+  const wctx: DeploymentContext = {
+    versionSlot,
+    originalRef: 'refs/tags/v1.0.0',
+    sha: 'abc123',
+    timestamp: '2026-04-06T00:00:00Z',
+    basePath: '/widgets/v1.0.0/',
+  };
+  const manifest: Manifest = {
+    schema: 2,
+    versions: [
+      { version: versionSlot, ref: 'refs/tags/v1.0.0', sha: 'abc123', timestamp: '2026-04-06T00:00:00Z', commits: [] },
+    ],
+  };
+
+  function markerCount(content: string): number {
+    return (content.match(/gh-pages-multiplexer:nav-widget/g) || []).length;
+  }
+
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'wpipe-wd-'));
+    sourceDir = await mkdtemp(path.join(tmpdir(), 'wpipe-src-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+    await rm(sourceDir, { recursive: true, force: true });
+  });
+
+  async function writeSource(rel: string, content: string | Buffer): Promise<void> {
+    const full = path.join(sourceDir, rel);
+    await mkdir(path.dirname(full), { recursive: true });
+    await writeFile(full, content);
+  }
+
+  async function runPipelineStages(): Promise<number> {
+    await writeIndexHtml(workdir, manifest, repoMeta);
+    await placeContent(workdir, sourceDir, wctx, 'base-tag');
+    return injectWidgetForVersion(workdir, versionSlot, repoMeta);
+  }
+
+  it('Test 1: full pipeline injects widget into every deployed html and leaves non-html bytes intact', async () => {
+    await writeSource('index.html', '<!doctype html><html><head><title>H</title></head><body><h1>Home</h1></body></html>');
+    await writeSource('about/index.html', '<!doctype html><html><head><title>A</title></head><body><h2>About</h2></body></html>');
+    const cssBuf = Buffer.from('body { color: red; }', 'utf8');
+    const jsBuf = Buffer.from('console.log(1);', 'utf8');
+    await writeSource('assets/style.css', cssBuf);
+    await writeSource('assets/app.js', jsBuf);
+
+    const injected = await runPipelineStages();
+    expect(injected).toBe(2);
+
+    const root = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
+    const about = await fsReadFile(path.join(workdir, versionSlot, 'about/index.html'), 'utf8');
+    expect(root).toContain(WIDGET_MARKER);
+    expect(about).toContain(WIDGET_MARKER);
+    expect(root).toContain(`"${versionSlot}"`);
+    expect(about).toContain(`"${versionSlot}"`);
+    expect(root).toContain('"../versions.json"');
+    expect(about).toContain('"../versions.json"');
+
+    const css = await fsReadFile(path.join(workdir, versionSlot, 'assets/style.css'));
+    const js = await fsReadFile(path.join(workdir, versionSlot, 'assets/app.js'));
+    expect(Buffer.compare(css, cssBuf)).toBe(0);
+    expect(Buffer.compare(js, jsBuf)).toBe(0);
+  });
+
+  it('Test 2: root index.html (rendered by index-renderer) is NOT injected', async () => {
+    await writeSource('index.html', '<!doctype html><html><head></head><body>x</body></html>');
+    await runPipelineStages();
+    const rootIdx = await fsReadFile(path.join(workdir, 'index.html'), 'utf8');
+    expect(rootIdx).not.toContain(WIDGET_MARKER);
+  });
+
+  it('Test 3: sibling version directories are byte-identical after deploy', async () => {
+    const siblingDir = path.join(workdir, 'v0.9.0');
+    await mkdir(siblingDir, { recursive: true });
+    const siblingHtml = '<!doctype html><html><body>old</body></html>';
+    await writeFile(path.join(siblingDir, 'index.html'), siblingHtml, 'utf8');
+
+    await writeSource('index.html', '<!doctype html><html><head></head><body>new</body></html>');
+    await runPipelineStages();
+
+    const after = await fsReadFile(path.join(siblingDir, 'index.html'), 'utf8');
+    expect(after).toBe(siblingHtml);
+    expect(after).not.toContain(WIDGET_MARKER);
+  });
+
+  it('Test 4: re-running the pipeline is idempotent (exactly one marker per file)', async () => {
+    await writeSource('index.html', '<!doctype html><html><head></head><body>1</body></html>');
+    await writeSource('nested/page.html', '<!doctype html><html><head></head><body>2</body></html>');
+
+    await runPipelineStages();
+    const second = await injectWidgetForVersion(workdir, versionSlot, repoMeta);
+    expect(second).toBe(0);
+
+    const a = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
+    const b = await fsReadFile(path.join(workdir, versionSlot, 'nested/page.html'), 'utf8');
+    expect(markerCount(a)).toBe(1);
+    expect(markerCount(b)).toBe(1);
+  });
+
+  it('Test 5: widget injection runs AFTER placeContent (base-path correction + marker coexist)', async () => {
+    await writeSource('index.html', '<!doctype html><html><head><title>T</title></head><body><a href="#top">top</a></body></html>');
+    await runPipelineStages();
+    const out = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
+    // placeContent injected <base href="..."> via injectBaseHref
+    expect(out).toContain('<base href="/widgets/v1.0.0/">');
+    // and the widget marker is also present
+    expect(out).toContain(WIDGET_MARKER);
+    // marker appears once, after the <base> tag => proves order
+    expect(out.indexOf(WIDGET_MARKER)).toBeGreaterThan(out.indexOf('<base href='));
+  });
+
+  it('Test 6: zero-html version is a no-op success', async () => {
+    await writeSource('assets/data.json', '{"k":1}');
+    await writeSource('assets/logo.svg', '<svg/>');
+
+    const injected = await runPipelineStages();
+    expect(injected).toBe(0);
+
+    // Walk version dir, assert no marker
+    const data = await fsReadFile(path.join(workdir, versionSlot, 'assets/data.json'), 'utf8');
+    const svg = await fsReadFile(path.join(workdir, versionSlot, 'assets/logo.svg'), 'utf8');
+    expect(data).not.toContain(WIDGET_MARKER);
+    expect(svg).not.toContain(WIDGET_MARKER);
   });
 });
