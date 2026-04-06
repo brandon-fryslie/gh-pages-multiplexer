@@ -8,8 +8,9 @@ import * as exec from '@actions/exec';
 import * as core from '@actions/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { readFile } from 'node:fs/promises';
-import type { DeployConfig, DeploymentContext } from './types.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import type { DeployConfig, DeploymentContext, Manifest } from './types.js';
+import { renderIndexHtml, type RepoMeta } from './index-renderer.js';
 
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
@@ -108,4 +109,18 @@ export async function readCnameFile(workdir: string): Promise<string | null> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
   }
+}
+
+// [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
+// The rendered index is produced by the pure renderer in index-renderer.ts; this
+// function is the sole I/O enforcer that lands it on disk.
+// [LAW:dataflow-not-control-flow] Runs unconditionally on every deploy; empty
+// manifest still produces a valid index.html (renderer handles empty-case in data).
+export async function writeIndexHtml(
+  workdir: string,
+  manifest: Manifest,
+  repoMeta: RepoMeta,
+): Promise<void> {
+  const html = renderIndexHtml(manifest, repoMeta);
+  await writeFile(path.join(workdir, 'index.html'), html, 'utf8');
 }

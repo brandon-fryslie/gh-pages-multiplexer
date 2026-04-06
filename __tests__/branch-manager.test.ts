@@ -14,8 +14,10 @@ vi.mock('@actions/core', () => ({
 }));
 
 import * as exec from '@actions/exec';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile } from '../src/branch-manager.js';
-import type { DeployConfig, DeploymentContext } from '../src/types.js';
+import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml } from '../src/branch-manager.js';
+import { renderIndexHtml } from '../src/index-renderer.js';
+import type { DeployConfig, DeploymentContext, Manifest } from '../src/types.js';
+import { readFile } from 'node:fs/promises';
 
 const execMock = exec.exec as unknown as ReturnType<typeof vi.fn>;
 
@@ -181,5 +183,57 @@ describe('readCnameFile', () => {
 
   it('returns null when CNAME does not exist', async () => {
     expect(await readCnameFile(dir)).toBeNull();
+  });
+});
+
+describe('writeIndexHtml', () => {
+  let dir: string;
+  const manifest: Manifest = {
+    schema: 2,
+    versions: [
+      {
+        version: 'v1.2.3',
+        ref: 'refs/tags/v1.2.3',
+        sha: 'abcdef1234567890abcdef1234567890abcdef12',
+        timestamp: '2026-04-06T00:00:00Z',
+        commits: [],
+      },
+    ],
+  };
+  const repoMeta = { owner: 'acme', repo: 'widgets' };
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), 'widx-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('writes index.html to workdir', async () => {
+    await writeIndexHtml(dir, manifest, repoMeta);
+    const content = await readFile(path.join(dir, 'index.html'), 'utf8');
+    expect(content.length).toBeGreaterThan(0);
+  });
+
+  it('content matches renderIndexHtml output', async () => {
+    await writeIndexHtml(dir, manifest, repoMeta);
+    const content = await readFile(path.join(dir, 'index.html'), 'utf8');
+    expect(content).toBe(renderIndexHtml(manifest, repoMeta));
+  });
+
+  it('overwrites an existing index.html', async () => {
+    await writeFile(path.join(dir, 'index.html'), 'STALE CONTENT', 'utf8');
+    await writeIndexHtml(dir, manifest, repoMeta);
+    const content = await readFile(path.join(dir, 'index.html'), 'utf8');
+    expect(content).not.toContain('STALE CONTENT');
+    expect(content).toContain('v1.2.3');
+  });
+
+  it('is idempotent on repeated calls with same inputs', async () => {
+    await writeIndexHtml(dir, manifest, repoMeta);
+    const first = await readFile(path.join(dir, 'index.html'), 'utf8');
+    await writeIndexHtml(dir, manifest, repoMeta);
+    const second = await readFile(path.join(dir, 'index.html'), 'utf8');
+    expect(first).toBe(second);
   });
 });

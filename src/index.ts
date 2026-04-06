@@ -7,7 +7,7 @@
 import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, ManifestEntry } from './types.js';
 import { resolveContext } from './ref-resolver.js';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile } from './branch-manager.js';
+import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml } from './branch-manager.js';
 import { readManifest, updateManifest, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
@@ -70,6 +70,12 @@ async function deploy(config: DeployConfig, sourceRepoDir: string): Promise<Depl
     };
     const updatedManifest = updateManifest(currentManifest, entry);
     await writeManifest(workdir, updatedManifest);
+
+    // [LAW:dataflow-not-control-flow] INDX-06: index.html is regenerated on every
+    // deploy from the manifest. Runs unconditionally. Lands in the same commit as
+    // versions.json via the shared commitAndPush step (MNFST-04 / INDX-06).
+    const [repoOwner, repoName] = config.repo.split('/');
+    await writeIndexHtml(workdir, updatedManifest, { owner: repoOwner, repo: repoName });
 
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
