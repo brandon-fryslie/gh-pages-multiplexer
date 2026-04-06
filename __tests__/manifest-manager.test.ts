@@ -24,7 +24,7 @@ const entry = (version: string, ts = '2026-04-06T00:00:00Z'): ManifestEntry => (
 describe('readManifest', () => {
   it('returns empty manifest when file missing', async () => {
     const m = await readManifest(workdir);
-    expect(m).toEqual({ schema: 1, versions: [] });
+    expect(m).toEqual({ schema: 2, versions: [] });
   });
 
   it('parses existing valid JSON', async () => {
@@ -63,9 +63,32 @@ describe('updateManifest', () => {
     expect(JSON.stringify(m)).toBe(snapshot);
   });
 
-  it('always has schema: 1', () => {
+  it('always emits schema: 2', () => {
     const m: Manifest = { schema: 1, versions: [] };
-    expect(updateManifest(m, entry('v1')).schema).toBe(1);
+    expect(updateManifest(m, entry('v1')).schema).toBe(2);
+  });
+
+  it('preserves commits[] on the inserted entry', () => {
+    const m: Manifest = { schema: 2, versions: [] };
+    const withCommits: ManifestEntry = {
+      ...entry('v1'),
+      commits: [
+        { sha: 'c1', author_name: 'a', author_email: 'a@x', message: 'm', timestamp: '2026-04-06T00:00:00Z' },
+      ],
+    };
+    const updated = updateManifest(m, withCommits);
+    expect(updated.schema).toBe(2);
+    expect(updated.versions[0].commits).toHaveLength(1);
+    expect(updated.versions[0].commits?.[0].sha).toBe('c1');
+  });
+
+  it('accepts schema 2 on read', async () => {
+    await writeFile(
+      path.join(workdir, 'versions.json'),
+      JSON.stringify({ schema: 2, versions: [entry('v1')] }),
+    );
+    const m = await readManifest(workdir);
+    expect(m.schema).toBe(2);
   });
 });
 

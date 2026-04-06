@@ -17,12 +17,13 @@ export async function readManifest(workdir: string): Promise<Manifest> {
     raw = await readFile(file, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { schema: 1, versions: [] };
+      return { schema: 2, versions: [] };
     }
     throw err;
   }
   const parsed = JSON.parse(raw) as Manifest;
-  if (parsed.schema !== 1) {
+  // [LAW:one-source-of-truth] D-02: reader accepts 1|2, writer always emits 2.
+  if (parsed.schema !== 1 && parsed.schema !== 2) {
     throw new Error(`Unsupported manifest schema: ${parsed.schema as unknown as number}`);
   }
   if (!Array.isArray(parsed.versions)) {
@@ -37,8 +38,9 @@ export async function readManifest(workdir: string): Promise<Manifest> {
  */
 export function updateManifest(manifest: Manifest, entry: ManifestEntry): Manifest {
   const filtered = manifest.versions.filter((v) => v.version !== entry.version);
+  // [LAW:one-source-of-truth] D-02: reader accepts 1|2, writer always emits 2.
   return {
-    schema: 1,
+    schema: 2,
     versions: [entry, ...filtered],
   };
 }

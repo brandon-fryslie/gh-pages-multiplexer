@@ -48,7 +48,7 @@ describe('deploy pipeline integration', () => {
 
     // Stage 3: read -> update -> write manifest.
     const current = await readManifest(workdir);
-    expect(current).toEqual({ schema: 1, versions: [] });
+    expect(current).toEqual({ schema: 2, versions: [] });
 
     const entry: ManifestEntry = {
       version: context.versionSlot,
@@ -76,7 +76,7 @@ describe('deploy pipeline integration', () => {
     // Manifest content reflects the update.
     const manifestRaw = await readFile(manifestPath, 'utf8');
     const manifest = JSON.parse(manifestRaw);
-    expect(manifest.schema).toBe(1);
+    expect(manifest.schema).toBe(2);
     expect(manifest.versions[0]).toEqual(entry);
 
     // Base-tag correction was applied to the HTML file.
