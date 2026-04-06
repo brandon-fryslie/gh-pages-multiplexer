@@ -209,7 +209,7 @@ Schema `1` entries (from older deployments) are still readable — the tool auto
 
 ## Requirements
 
-- **Node 20+** on the runner (GitHub-hosted runners are fine by default)
+- **Node 24+** on the runner (GitHub-hosted runners support it by default)
 - **`fetch-depth: 0`** on `actions/checkout` — the git metadata extractor needs full history to compute commit ranges. Without it, the action fails loudly with a clear error message.
 - **`permissions.contents: write`** on the workflow to push to `gh-pages`
 - **`permissions.pull-requests: write`** if you want PR preview comments (optional — the deploy itself succeeds without this permission, you just won't get the sticky comment)

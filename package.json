@@ -7,6 +7,9 @@
   "bin": {
     "gh-pages-multiplexer": "./dist/cli.js"
   },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "test": "vitest run --reporter=verbose",

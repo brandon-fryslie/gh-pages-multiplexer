@@ -34,6 +34,5 @@ outputs:
     description: 'The URL of the deployed version'
 
 runs:
-  # TODO: Migrate to node24 -- Node 20 EOL April 2026, runners default to node24 June 2026
-  using: 'node20'
+  using: 'node24'
   main: 'dist/index.js'
