@@ -9,15 +9,15 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Deployment
 
-- [ ] **DEPL-01**: Tool deploys build output into a versioned subdirectory on the gh-pages branch without disturbing existing version directories
-- [ ] **DEPL-02**: Version subdirectory name is derived from git ref (tag or branch name) by default
-- [ ] **DEPL-03**: User can configure glob/regex patterns to filter which branches or tags trigger versioned deployments
-- [ ] **DEPL-04**: Tool handles base path correction so deployed sites work correctly from their subdirectory (e.g., `<base href>` injection)
+- [x] **DEPL-01**: Tool deploys build output into a versioned subdirectory on the gh-pages branch without disturbing existing version directories
+- [x] **DEPL-02**: Version subdirectory name is derived from git ref (tag or branch name) by default
+- [x] **DEPL-03**: User can configure glob/regex patterns to filter which branches or tags trigger versioned deployments
+- [x] **DEPL-04**: Tool handles base path correction so deployed sites work correctly from their subdirectory (e.g., `<base href>` injection)
 - [ ] **DEPL-05**: Concurrent deployments to the same gh-pages branch do not corrupt each other (fetch-rebase-push retry or concurrency controls)
 
 ### Manifest
 
-- [ ] **MNFST-01**: A JSON manifest file at the root of gh-pages tracks all deployed versions as the single source of truth
+- [x] **MNFST-01**: A JSON manifest file at the root of gh-pages tracks all deployed versions as the single source of truth
 - [ ] **MNFST-02**: Each manifest entry includes: version name, git ref, commit SHA, deploy timestamp, and commit history since last deployment
 - [ ] **MNFST-03**: Manifest entries include author information and commit messages for each included commit
 - [ ] **MNFST-04**: Manifest is updated atomically with each deployment (same commit as the version content)
@@ -91,12 +91,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEPL-01 | Phase 1 | Pending |
-| DEPL-02 | Phase 1 | Pending |
-| DEPL-03 | Phase 1 | Pending |
-| DEPL-04 | Phase 1 | Pending |
+| DEPL-01 | Phase 1 | Complete |
+| DEPL-02 | Phase 1 | Complete |
+| DEPL-03 | Phase 1 | Complete |
+| DEPL-04 | Phase 1 | Complete |
 | DEPL-05 | Phase 1 | Pending |
-| MNFST-01 | Phase 1 | Pending |
+| MNFST-01 | Phase 1 | Complete |
 | MNFST-02 | Phase 2 | Pending |
 | MNFST-03 | Phase 2 | Pending |
 | MNFST-04 | Phase 1 | Pending |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-04-06T06:20:53.875Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-04-06T06:26:01.401Z"
 last_activity: 2026-04-06
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 67
 ---
 
 # Project State
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-04-05)
 ## Current Position
 
 Phase: 1 of 5 (Core Deployment Pipeline)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: Ready to execute
 Last activity: 2026-04-06
 
@@ -53,6 +53,7 @@ Progress: [░░░░░░░░░░] 0%
 
 *Updated after each plan completion*
 | Phase 01-core-deployment-pipeline P01 | 5min | 3 tasks | 10 files |
+| Phase 01-core-deployment-pipeline P02 | ~7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -65,6 +66,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Git metadata extraction is its own phase (2) because enriching manifest entries is substantial and the index/widget depend on that data
 - [Roadmap]: Phase 4 (Widget) depends only on Phase 1, not Phase 3 -- widget and index are independent consumers of the manifest
 - [Phase 01-core-deployment-pipeline]: Rollup TS plugin outDir overridden to ./dist; tsconfig.json remains source of truth for other TS options
+- [Phase 01-core-deployment-pipeline]: sanitizeRef splits-and-drops '..' segments structurally rather than using a reject-list regex (T-01-01 structural mitigation)
+- [Phase 01-core-deployment-pipeline]: content-placer uses node:fs/promises rather than @actions/io to remain unit-testable without an Actions runtime
 
 ### Pending Todos
 
@@ -77,6 +80,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T06:20:53.872Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-04-06T06:26:01.399Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
