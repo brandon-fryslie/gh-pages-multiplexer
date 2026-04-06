@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-04-06T12:45:40.964Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-04-06T13:00:46.883Z"
 last_activity: 2026-04-06
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_plans: 12
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03-rich-index-page P03 | ~8m | 3 tasks | 8 files |
 | Phase 04-navigation-widget P01 | 12min | 2 tasks | 2 files |
 | Phase 04-navigation-widget P02 | 6min | 2 tasks | 4 files |
+| Phase 05 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,7 @@ Recent decisions affecting current work:
 - [Phase 01-core-deployment-pipeline]: content-placer uses node:fs/promises rather than @actions/io to remain unit-testable without an Actions runtime
 - [Phase 02-git-metadata-extraction]: D-02 applied: manifest reader accepts schema 1|2, writer always emits schema 2
 - [Phase 03-rich-index-page]: renderIndexHtml derives footer timestamp from manifest (not wall clock) to preserve pure-function contract
+- [Phase 05]: Extracted deploy() byte-for-byte into src/deploy.ts; index.ts is now Action adapter only
 
 ### Pending Todos
 
@@ -89,6 +91,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-06T12:45:40.962Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-04-06T13:00:46.880Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
