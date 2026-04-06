@@ -30,12 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A JSON manifest at the gh-pages root tracks every deployed version and is updated in the same commit as the version content
   4. Deployed sites render correctly from their subdirectory (links, assets, styles all work)
   5. Two concurrent workflow runs deploying different versions both succeed without corrupting each other
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — Project scaffold: package.json, TypeScript, Rollup, Vitest, action.yml, types, entry point stub
+- [ ] 01-02-PLAN.md — Core logic modules: ref-resolver, base-path, content-placer, manifest-manager with tests
+- [ ] 01-03-PLAN.md — Git operations (branch-manager), full pipeline wiring, integration test, dist/index.js build
 
 ### Phase 2: Git Metadata Extraction
 **Goal**: Each deployment automatically captures and stores rich git history so downstream features (index, widget) have data to display
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Core Deployment Pipeline | 0/3 | Not started | - |
+| 1. Core Deployment Pipeline | 0/3 | Planned | - |
 | 2. Git Metadata Extraction | 0/2 | Not started | - |
 | 3. Rich Index Page | 0/3 | Not started | - |
 | 4. Navigation Widget | 0/2 | Not started | - |
