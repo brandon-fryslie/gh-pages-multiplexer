@@ -33,11 +33,11 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Navigation Widget
 
-- [ ] **NAVW-01**: A small floating UI element is injected into each deployed version's HTML pages at deploy time
-- [ ] **NAVW-02**: Widget dynamically loads the manifest to display available versions
-- [ ] **NAVW-03**: Widget allows navigating to any other version or back to the index
-- [ ] **NAVW-04**: Widget uses Shadow DOM for style isolation from the host page
-- [ ] **NAVW-05**: Widget is non-intrusive — does not break page layout or functionality
+- [x] **NAVW-01**: A small floating UI element is injected into each deployed version's HTML pages at deploy time
+- [x] **NAVW-02**: Widget dynamically loads the manifest to display available versions
+- [x] **NAVW-03**: Widget allows navigating to any other version or back to the index
+- [x] **NAVW-04**: Widget uses Shadow DOM for style isolation from the host page
+- [x] **NAVW-05**: Widget is non-intrusive — does not break page layout or functionality
 
 ### GitHub Integration
 
@@ -106,11 +106,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INDX-04 | Phase 3 | Complete |
 | INDX-05 | Phase 3 | Complete |
 | INDX-06 | Phase 3 | Complete |
-| NAVW-01 | Phase 4 | Pending |
-| NAVW-02 | Phase 4 | Pending |
-| NAVW-03 | Phase 4 | Pending |
-| NAVW-04 | Phase 4 | Pending |
-| NAVW-05 | Phase 4 | Pending |
+| NAVW-01 | Phase 4 | Complete |
+| NAVW-02 | Phase 4 | Complete |
+| NAVW-03 | Phase 4 | Complete |
+| NAVW-04 | Phase 4 | Complete |
+| NAVW-05 | Phase 4 | Complete |
 | GHUB-01 | Phase 1 | Complete |
 | GHUB-02 | Phase 1 | Complete |
 | GHUB-03 | Phase 1 | Complete |
