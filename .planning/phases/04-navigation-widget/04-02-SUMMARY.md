@@ -105,3 +105,28 @@ None — plan executed exactly as written.
 - dist/index.js contains all 3 marker strings: FOUND
 - All 3 commits exist in git log: FOUND
 - 139/139 vitest pass: FOUND
+
+---
+
+## Live Browser Verification (chrome-devtools-mcp)
+
+**Performed:** 2026-04-06 (orchestrator-driven)
+
+Fixture: `/tmp/phase4-driver.mjs` injects widget into a host page with an aggressive red-everything CSS reset + `all: unset` button restyle. Served via `python3 -m http.server` to exercise real-fetch semantics.
+
+| Check | Result |
+|---|---|
+| Button visible on closed state (bottom-right circle) | PASS (/tmp/phase4-closed.png) |
+| Shadow DOM isolation vs `color: red !important` host reset | PASS — widget text dark on white, host `<h1>` still red |
+| Click opens panel, `aria-expanded=true` | PASS |
+| Panel header "Versions" + "← Index" link | PASS |
+| Current version `v2.1.0` has "current" badge on accent-highlight row | PASS (/tmp/phase4-open-loaded.png) |
+| All 3 versions listed with correct refs | PASS (versionCount=3) |
+| Fetch of `../versions.json` | PASS (1 network request, 200) |
+| Dark mode via `prefers-color-scheme` | PASS (/tmp/phase4-open-dark.png) |
+| Mobile 375px — panel widens to viewport | PASS (/tmp/phase4-open-dark-mobile.png) |
+| Console errors | 0 widget errors (1 unrelated `favicon.ico` 404 from browser auto-fetch) |
+| Click on `feature-auth` navigates to `../feature-auth/` | PASS — `location.href` changed to `http://localhost:8765/feature-auth/` |
+| No host-page interference (host `<h1>`, `<p>`, `<button>` unchanged) | PASS — visible in screenshots |
+
+**Verdict (live):** NAVW-01..05 all satisfied with both code and live browser evidence. Shadow DOM `:host { all: initial; }` reset plus scoped tokens means the widget is mechanically immune to host CSS.
