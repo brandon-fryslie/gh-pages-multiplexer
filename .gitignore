@@ -1,0 +1,5 @@
+node_modules/
+build/
+*.tgz
+.DS_Store
+# Note: dist/ is intentionally NOT ignored -- GitHub Actions require committed bundles (D-02)
