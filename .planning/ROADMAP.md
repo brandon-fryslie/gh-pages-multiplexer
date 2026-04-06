@@ -83,7 +83,7 @@ Plans:
 
 Plans:
 - [x] 04-01-PLAN.md — widget-injector module: getWidgetScriptTag pure helper + injectWidgetIntoHtmlFiles with marker idempotency, *.html-only filter, </body>/</html>/append fallback, full unit tests
-- [ ] 04-02-PLAN.md — wire injectWidgetForVersion into branch-manager + index.ts pipeline (after placeContent, before commitAndPush), E2E pipeline test, rebuild dist bundle
+- [x] 04-02-PLAN.md — wire injectWidgetForVersion into branch-manager + index.ts pipeline (after placeContent, before commitAndPush), E2E pipeline test, rebuild dist bundle
 
 ### Phase 5: CLI and PR Integration
 **Goal**: Users can invoke the tool from custom CI scripts and get automatic PR preview links
