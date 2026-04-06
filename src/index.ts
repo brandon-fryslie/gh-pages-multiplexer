@@ -8,8 +8,10 @@
 //   implementation. This file differs from src/cli.ts ONLY in how it gathers DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
+import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
+import { upsertPreviewComment } from './pr-commenter.js';
 
 // [LAW:verifiable-goals] parseInputs is exported so __tests__/inputs.test.ts
 // can validate GHUB-02 contract directly.
@@ -51,6 +53,33 @@ async function run(): Promise<void> {
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
   core.info(`Deployed ${result.version} to ${result.url}`);
+
+  // [LAW:dataflow-not-control-flow] PR eligibility is data: we always reach the same call
+  //   shape; the variability is whether `pr` is present. The deploy itself ran unconditionally.
+  // [LAW:no-defensive-null-guards] exception: D-19 — the PR preview comment is optional and the
+  //   deploy has already succeeded. This outer try/catch is the SINGLE documented swallow boundary
+  //   in src/index.ts. Failure here MUST NOT fail the workflow.
+  const ctx = github.context;
+  const isPrEvent = ctx.eventName === 'pull_request' || ctx.eventName === 'pull_request_target';
+  const pr = isPrEvent ? ctx.payload.pull_request : undefined;
+  if (pr && typeof pr.number === 'number' && config.repo.includes('/')) {
+    const [owner, repo] = config.repo.split('/');
+    const octokit = github.getOctokit(config.token);
+    try {
+      await upsertPreviewComment(octokit, {
+        owner,
+        repo,
+        prNumber: pr.number,
+        previewUrl: result.url,
+        version: result.version,
+      });
+      core.info(`Updated PR #${pr.number} preview comment`);
+    } catch (err) {
+      // [LAW:no-defensive-null-guards] exception: D-19 — documented swallow boundary.
+      const msg = err instanceof Error ? err.message : String(err);
+      core.warning(`PR preview comment failed: ${msg}. Deploy itself succeeded.`);
+    }
+  }
 }
 
 run().catch((error: unknown) => {
