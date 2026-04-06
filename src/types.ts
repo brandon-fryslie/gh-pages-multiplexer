@@ -22,17 +22,30 @@ export interface DeploymentContext {
   basePath: string; // computed base path (e.g., "/repo-name/v2.1.0/")
 }
 
+// [LAW:one-source-of-truth] META-02/META-03: commit metadata shape lives here,
+// as the single definition consumed by extractor, manifest writer, and downstream renderers.
+/** A single commit record attached to a deployment */
+export interface CommitInfo {
+  sha: string; // full 40-char SHA
+  author_name: string;
+  author_email: string;
+  message: string; // full body, untrimmed, may include newlines
+  timestamp: string; // ISO 8601 (%aI)
+}
+
 /** A single version entry in the manifest */
 export interface ManifestEntry {
   version: string; // sanitized directory name
   ref: string; // original git ref
   sha: string; // commit SHA at deploy time
   timestamp: string; // ISO 8601 deploy timestamp
+  commits?: CommitInfo[]; // optional on read (schema 1), populated on write (schema 2)
 }
 
 /** The versions.json top-level structure */
 export interface Manifest {
-  schema: 1;
+  // Reader accepts 1 | 2 (D-02). Writer always emits 2.
+  schema: 1 | 2;
   versions: ManifestEntry[];
 }
 
