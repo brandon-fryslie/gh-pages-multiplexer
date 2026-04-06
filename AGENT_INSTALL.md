@@ -1,6 +1,6 @@
 # Agent Install Prompt — gh-pages-multiplexer
 
-> **For humans:** Open this file, copy everything from the `--- BEGIN PROMPT ---` line to the `--- END PROMPT ---` line, and paste it to a coding agent (Claude Code, Cursor, Aider, Copilot, etc.) running inside your repository. Or just tell the agent: *"Follow the instructions at https://github.com/brandon-fryslie/gh-pages-multiplexer/blob/main/AGENT_INSTALL.md"*.
+> **For humans:** Open this file, copy everything from the `--- BEGIN PROMPT ---` line to the `--- END PROMPT ---` line, and paste it to a coding agent (Claude Code, Cursor, Aider, Copilot, etc.) running inside your repository. Or just tell the agent: *"Follow the instructions at https://github.com/brandon-fryslie/gh-pages-multiplexer/blob/v1/AGENT_INSTALL.md"*.
 >
 > The agent will read your repo, detect existing conventions, and wire up the action correctly.
 
@@ -16,8 +16,8 @@ Follow these steps **in order**. Do not skip investigation steps. Do not invent 
 
 Before touching anything, fetch and read the authoritative inputs/outputs so you don't guess:
 
-- https://raw.githubusercontent.com/brandon-fryslie/gh-pages-multiplexer/main/action.yml
-- https://raw.githubusercontent.com/brandon-fryslie/gh-pages-multiplexer/main/README.md
+- https://raw.githubusercontent.com/brandon-fryslie/gh-pages-multiplexer/v1/action.yml
+- https://raw.githubusercontent.com/brandon-fryslie/gh-pages-multiplexer/v1/README.md
 
 Key facts from the action:
 
