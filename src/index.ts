@@ -7,7 +7,7 @@
 import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, ManifestEntry } from './types.js';
 import { resolveContext } from './ref-resolver.js';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml } from './branch-manager.js';
+import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion } from './branch-manager.js';
 import { readManifest, updateManifest, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
@@ -79,6 +79,18 @@ async function deploy(config: DeployConfig, sourceRepoDir: string): Promise<Depl
 
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
+
+    // Stage 4.5: Inject the navigation widget into every deployed HTML page.
+    // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
+    // [LAW:single-enforcer] Goes through branch-manager.injectWidgetForVersion -- the only writer to
+    // the gh-pages worktree.
+    // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
+    const injectedCount = await injectWidgetForVersion(
+      workdir,
+      context.versionSlot,
+      { owner: repoOwner, repo: repoName },
+    );
+    core.info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
 
     // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
     await commitAndPush(workdir, context, config.targetBranch);
