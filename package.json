@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Deploy static sites to versioned subdirectories on gh-pages",
+  "bin": {
+    "gh-pages-multiplexer": "./dist/cli.js"
+  },
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "test": "vitest run --reporter=verbose",
@@ -12,6 +15,7 @@
   "dependencies": {
     "@actions/core": "^3.0.0",
     "@actions/exec": "^3.0.0",
+    "@actions/github": "^9.0.0",
     "@actions/io": "^3.0.2",
     "picomatch": "^4.0.0"
   },
