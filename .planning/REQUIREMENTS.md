@@ -18,8 +18,8 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Manifest
 
 - [x] **MNFST-01**: A JSON manifest file at the root of gh-pages tracks all deployed versions as the single source of truth
-- [ ] **MNFST-02**: Each manifest entry includes: version name, git ref, commit SHA, deploy timestamp, and commit history since last deployment
-- [ ] **MNFST-03**: Manifest entries include author information and commit messages for each included commit
+- [x] **MNFST-02**: Each manifest entry includes: version name, git ref, commit SHA, deploy timestamp, and commit history since last deployment
+- [x] **MNFST-03**: Manifest entries include author information and commit messages for each included commit
 - [x] **MNFST-04**: Manifest is updated atomically with each deployment (same commit as the version content)
 
 ### Index Page
@@ -51,7 +51,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **META-01**: At deploy time, tool extracts commit history between the current deployment and the previous deployment of the same version (or all commits if first deployment)
 - [x] **META-02**: Extracted metadata includes: commit SHA, author name/email, commit message, and timestamp for each commit
-- [ ] **META-03**: All metadata is stored in the manifest and available to the index page and widget
+- [x] **META-03**: All metadata is stored in the manifest and available to the index page and widget
 
 ## v2 Requirements
 
@@ -97,8 +97,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEPL-04 | Phase 1 | Complete |
 | DEPL-05 | Phase 1 | Complete |
 | MNFST-01 | Phase 1 | Complete |
-| MNFST-02 | Phase 2 | Pending |
-| MNFST-03 | Phase 2 | Pending |
+| MNFST-02 | Phase 2 | Complete |
+| MNFST-03 | Phase 2 | Complete |
 | MNFST-04 | Phase 1 | Complete |
 | INDX-01 | Phase 3 | Pending |
 | INDX-02 | Phase 3 | Pending |
@@ -118,7 +118,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GHUB-05 | Phase 5 | Pending |
 | META-01 | Phase 2 | Complete |
 | META-02 | Phase 2 | Complete |
-| META-03 | Phase 2 | Pending |
+| META-03 | Phase 2 | Complete |
 
 **Coverage:**
 - v1 requirements: 28 total

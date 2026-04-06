@@ -49,7 +49,7 @@ Plans:
 
 Plans:
 - [x] 02-01: TBD
-- [ ] 02-02: TBD
+- [x] 02-02: TBD
 
 ### Phase 3: Rich Index Page
 **Goal**: Users landing on the root gh-pages URL see a well-designed page listing all deployed versions with their history and metadata
