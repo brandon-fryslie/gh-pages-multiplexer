@@ -10,6 +10,7 @@ import { resolveContext } from './ref-resolver.js';
 import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile } from './branch-manager.js';
 import { readManifest, updateManifest, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
+import { extractCommits } from './metadata-extractor.js';
 
 // [LAW:verifiable-goals] parseInputs is exported so __tests__/inputs.test.ts
 // can validate GHUB-02 contract directly.
@@ -39,7 +40,7 @@ export function parseInputs(): DeployConfig {
   };
 }
 
-async function deploy(config: DeployConfig): Promise<DeployResult> {
+async function deploy(config: DeployConfig, sourceRepoDir: string): Promise<DeployResult> {
   // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
   if (config.token) core.setSecret(config.token);
 
@@ -52,13 +53,20 @@ async function deploy(config: DeployConfig): Promise<DeployResult> {
     const context = resolveContext(config, cnameDomain !== null);
     core.info(`Version: ${context.versionSlot}, Base path: ${context.basePath}`);
 
-    // Stage 3: Read manifest, update (pure), write.
+    // Stage 3: Read manifest, extract commits, update (pure), write.
     const currentManifest = await readManifest(workdir);
+    const previousSha =
+      currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
+    // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
+    const commits = await extractCommits(sourceRepoDir, context.sha, previousSha);
+    core.info(`Captured ${commits.length} commit(s) for ${context.versionSlot}`);
+
     const entry: ManifestEntry = {
       version: context.versionSlot,
       ref: context.originalRef,
       sha: context.sha,
       timestamp: context.timestamp,
+      commits,
     };
     const updatedManifest = updateManifest(currentManifest, entry);
     await writeManifest(workdir, updatedManifest);
@@ -85,11 +93,13 @@ async function deploy(config: DeployConfig): Promise<DeployResult> {
 }
 
 async function run(): Promise<void> {
+  // [LAW:one-source-of-truth] D-10: git log runs against the source repo, never the gh-pages worktree.
+  const sourceRepoDir = process.cwd();
   const config = parseInputs();
   core.info(`Deploying from ${config.sourceDir} to ${config.targetBranch}`);
   core.info(`Ref: ${config.ref}, Repo: ${config.repo}`);
 
-  const result = await deploy(config);
+  const result = await deploy(config, sourceRepoDir);
 
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
