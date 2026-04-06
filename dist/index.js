@@ -35,6 +35,7 @@ var timers$1 = require('timers');
 var path$1 = require('node:path');
 var os$1 = require('node:os');
 var promises = require('node:fs/promises');
+var node_child_process = require('node:child_process');
 
 function _interopNamespaceDefault(e) {
     var n = Object.create(null);
@@ -28831,7 +28832,7 @@ var __awaiter = (undefined && undefined.__awaiter) || function (thisArg, _argume
  * @param     options            optional exec options.  See ExecOptions
  * @returns   Promise<number>    exit code
  */
-function exec(commandLine, args, options) {
+function exec$1(commandLine, args, options) {
     return __awaiter(this, void 0, void 0, function* () {
         const commandArgs = argStringToArray(commandLine);
         if (commandArgs.length === 0) {
@@ -31513,7 +31514,7 @@ function resolveContext(config, cname = false) {
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
 async function git(args, opts = {}) {
-    return exec('git', args, { ignoreReturnCode: true, ...opts });
+    return exec$1('git', args, { ignoreReturnCode: true, ...opts });
 }
 /**
  * Prepare a git worktree for the target branch. Fetches the branch if it exists,
@@ -31609,12 +31610,13 @@ async function readManifest(workdir) {
     }
     catch (err) {
         if (err.code === 'ENOENT') {
-            return { schema: 1, versions: [] };
+            return { schema: 2, versions: [] };
         }
         throw err;
     }
     const parsed = JSON.parse(raw);
-    if (parsed.schema !== 1) {
+    // [LAW:one-source-of-truth] D-02: reader accepts 1|2, writer always emits 2.
+    if (parsed.schema !== 1 && parsed.schema !== 2) {
         throw new Error(`Unsupported manifest schema: ${parsed.schema}`);
     }
     if (!Array.isArray(parsed.versions)) {
@@ -31628,8 +31630,9 @@ async function readManifest(workdir) {
  */
 function updateManifest(manifest, entry) {
     const filtered = manifest.versions.filter((v) => v.version !== entry.version);
+    // [LAW:one-source-of-truth] D-02: reader accepts 1|2, writer always emits 2.
     return {
-        schema: 1,
+        schema: 2,
         versions: [entry, ...filtered],
     };
 }
@@ -31723,6 +31726,102 @@ async function findHtmlFiles(dir) {
     return results;
 }
 
+// [LAW:single-enforcer] This module is the sole place that shells out to `git log`.
+// [LAW:one-source-of-truth] META-03: the manifest is the home for commit data;
+// this module is the single producer of CommitInfo[] records.
+// [LAW:dataflow-not-control-flow] Same operations every invocation -- the range
+// argument is the only datum that varies. The force-push fallback is a value-driven
+// retry with a different revRange, not a branch that skips work.
+const exec = require$$0$4.promisify(node_child_process.execFile);
+const MAX_COMMITS = 100;
+const FIELD_SEP = '\x1f';
+const RECORD_SEP = '\x1e';
+const FORMAT = `%H${FIELD_SEP}%an${FIELD_SEP}%ae${FIELD_SEP}%aI${FIELD_SEP}%B${RECORD_SEP}`;
+const UNREACHABLE_TAG = 'GHPM_UNREACHABLE_REV';
+async function isShallowRepo(repoDir) {
+    try {
+        await promises.access(path$1.join(repoDir, '.git', 'shallow'));
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function runGitLog(repoDir, revRange) {
+    try {
+        const { stdout } = await exec('git', ['log', `--format=${FORMAT}`, '-n', String(MAX_COMMITS), revRange], { cwd: repoDir, maxBuffer: 64 * 1024 * 1024 });
+        return stdout;
+    }
+    catch (err) {
+        const e = err;
+        const stderr = (e.stderr ?? '') + (e.message ?? '');
+        if (/unknown revision|bad revision|ambiguous argument|invalid revision range/i.test(stderr)) {
+            throw new Error(`${UNREACHABLE_TAG}: ${stderr.trim()}`);
+        }
+        throw new Error(`git log failed in ${repoDir}: ${stderr.trim()}. ` +
+            `If this is a shallow clone, set fetch-depth: 0 on actions/checkout.`);
+    }
+}
+function parseLog(stdout) {
+    // [LAW:dataflow-not-control-flow] Split -> filter empty -> map. No branches over count.
+    const records = stdout
+        .split(RECORD_SEP)
+        .map((r) => (r.startsWith('\n') ? r.slice(1) : r))
+        .filter((r) => r.includes(FIELD_SEP));
+    return records.map((record) => {
+        const parts = record.split(FIELD_SEP);
+        const [sha, author_name, author_email, timestamp, ...messageParts] = parts;
+        return {
+            sha,
+            author_name,
+            author_email,
+            timestamp,
+            // Rejoin in case the message somehow contained FIELD_SEP; preserve newlines.
+            message: messageParts.join(FIELD_SEP),
+        };
+    });
+}
+/**
+ * Extract commit history for a deployment.
+ *
+ * @param repoDir    Source repo directory (already checked out).
+ * @param currentSha Deployment head SHA.
+ * @param previousSha Prior manifest entry SHA, or null for first deploy.
+ * @returns Up to MAX_COMMITS CommitInfo records, newest first.
+ */
+async function extractCommits(repoDir, currentSha, previousSha) {
+    const firstDeployRange = currentSha;
+    const incrementalRange = previousSha === null ? firstDeployRange : `${previousSha}..${currentSha}`;
+    // A .git/shallow file means history is truncated -- an unreachable previousSha
+    // may be due to that truncation rather than a force-push. In that case we must
+    // fail loudly per D-11 so the user sets fetch-depth: 0.
+    const shallow = await isShallowRepo(repoDir);
+    let stdout;
+    try {
+        stdout = await runGitLog(repoDir, incrementalRange);
+    }
+    catch (err) {
+        const msg = err.message;
+        if (msg.startsWith(UNREACHABLE_TAG)) {
+            if (shallow) {
+                throw new Error(`git log failed in ${repoDir}: previous SHA ${previousSha ?? 'null'} ` +
+                    `is not reachable in this shallow clone. Set fetch-depth: 0 on actions/checkout.`);
+            }
+            info(`Previous SHA ${previousSha ?? 'null'} not reachable (force-push?); ` +
+                `falling back to full history capped at ${MAX_COMMITS}.`);
+            stdout = await runGitLog(repoDir, firstDeployRange);
+        }
+        else {
+            throw err;
+        }
+    }
+    const commits = parseLog(stdout).slice(0, MAX_COMMITS);
+    if (commits.length === MAX_COMMITS) {
+        info(`Commit history capped at ${MAX_COMMITS} for this deployment.`);
+    }
+    return commits;
+}
+
 // [LAW:dataflow-not-control-flow] The deploy pipeline runs the same 5 stages in the same order
 //   every invocation. Variability (first-time branch vs existing, redeploy vs new version,
 //   custom domain vs project site) lives in the data flowing through the stages -- never in
@@ -31751,7 +31850,7 @@ function parseInputs() {
         ref: process.env.GITHUB_REF ?? '',
     };
 }
-async function deploy(config) {
+async function deploy(config, sourceRepoDir) {
     // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
     if (config.token)
         setSecret(config.token);
@@ -31762,13 +31861,18 @@ async function deploy(config) {
         const cnameDomain = await readCnameFile(workdir);
         const context = resolveContext(config, cnameDomain !== null);
         info(`Version: ${context.versionSlot}, Base path: ${context.basePath}`);
-        // Stage 3: Read manifest, update (pure), write.
+        // Stage 3: Read manifest, extract commits, update (pure), write.
         const currentManifest = await readManifest(workdir);
+        const previousSha = currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
+        // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
+        const commits = await extractCommits(sourceRepoDir, context.sha, previousSha);
+        info(`Captured ${commits.length} commit(s) for ${context.versionSlot}`);
         const entry = {
             version: context.versionSlot,
             ref: context.originalRef,
             sha: context.sha,
             timestamp: context.timestamp,
+            commits,
         };
         const updatedManifest = updateManifest(currentManifest, entry);
         await writeManifest(workdir, updatedManifest);
@@ -31791,10 +31895,12 @@ async function deploy(config) {
     }
 }
 async function run() {
+    // [LAW:one-source-of-truth] D-10: git log runs against the source repo, never the gh-pages worktree.
+    const sourceRepoDir = process.cwd();
     const config = parseInputs();
     info(`Deploying from ${config.sourceDir} to ${config.targetBranch}`);
     info(`Ref: ${config.ref}, Repo: ${config.repo}`);
-    const result = await deploy(config);
+    const result = await deploy(config, sourceRepoDir);
     setOutput('version', result.version);
     setOutput('url', result.url);
     info(`Deployed ${result.version} to ${result.url}`);
