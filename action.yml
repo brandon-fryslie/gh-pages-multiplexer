@@ -1,0 +1,39 @@
+name: 'gh-pages-multiplexer'
+description: 'Deploy static sites to versioned subdirectories on gh-pages'
+author: 'bmf'
+
+inputs:
+  source-dir:
+    description: 'Directory containing build output to deploy'
+    required: true
+  target-branch:
+    description: 'Branch to deploy to'
+    required: false
+    default: 'gh-pages'
+  ref-patterns:
+    description: 'Glob patterns for refs that trigger deployment (comma-separated). Default: deploy all refs.'
+    required: false
+    default: '*'
+  base-path-mode:
+    description: 'Base path correction mode: "base-tag" (default) or "rewrite"'
+    required: false
+    default: 'base-tag'
+  base-path-prefix:
+    description: 'Override the repository base path (e.g., "/my-repo"). Auto-detected from GITHUB_REPOSITORY if not set.'
+    required: false
+    default: ''
+  token:
+    description: 'GitHub token for pushing to the target branch'
+    required: false
+    default: '${{ github.token }}'
+
+outputs:
+  version:
+    description: 'The deployed version name (sanitized from ref)'
+  url:
+    description: 'The URL of the deployed version'
+
+runs:
+  # TODO: Migrate to node24 -- Node 20 EOL April 2026, runners default to node24 June 2026
+  using: 'node20'
+  main: 'dist/index.js'

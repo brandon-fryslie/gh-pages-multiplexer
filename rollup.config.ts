@@ -13,6 +13,8 @@ export default {
   plugins: [
     resolve({ preferBuiltins: true }),
     commonjs(),
-    typescript({ tsconfig: './tsconfig.json' }),
+    // [LAW:one-source-of-truth] tsconfig owns TS options; override outDir here so
+    // Rollup's TS plugin's path check (outDir must live under Rollup output dir) passes.
+    typescript({ tsconfig: './tsconfig.json', outDir: './dist', declaration: false }),
   ],
 };
