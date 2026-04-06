@@ -107,6 +107,22 @@ describe('parseInputs', () => {
       token: 'ghs_abc',
       repo: 'owner/repo',
       ref: 'refs/heads/main',
+      version: '',
     });
+  });
+
+  it('accepts base-path-mode: none', () => {
+    mockInputs({ ...VALID, 'base-path-mode': 'none' });
+    expect(parseInputs().basePathMode).toBe('none');
+  });
+
+  it('populates version from explicit input', () => {
+    mockInputs({ ...VALID, version: 'v1.2.3' });
+    expect(parseInputs().version).toBe('v1.2.3');
+  });
+
+  it('defaults version to empty string when not provided', () => {
+    mockInputs(VALID);
+    expect(parseInputs().version).toBe('');
   });
 });

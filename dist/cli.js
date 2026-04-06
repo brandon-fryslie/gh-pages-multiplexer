@@ -31394,8 +31394,15 @@ function matchesPatterns(versionSlot, patterns) {
  * `cname` indicates a custom domain is configured on the gh-pages branch (Pitfall 6).
  */
 function resolveContext(config, cname = false) {
-    const versionSlot = sanitizeRef(config.ref);
-    if (!matchesPatterns(versionSlot, config.refPatterns)) {
+    // [LAW:dataflow-not-control-flow] version is data: when present, it IS the slot; when absent,
+    //   the slot is derived from ref. sanitizeRef() is applied unconditionally to whichever input
+    //   wins, because path-safety is an invariant we enforce regardless of the source (T-01-01).
+    // Ref-pattern filtering is also data-driven: it exists to stop accidental deploys from the
+    //   wrong ref. An explicit version is an explicit decision to deploy, so filtering is bypassed
+    //   by encoding "explicit version deploys always match" in the match input.
+    const hasExplicitVersion = config.version.length > 0;
+    const versionSlot = sanitizeRef(hasExplicitVersion ? config.version : config.ref);
+    if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
         throw new Error(`Ref ${config.ref} (slot ${versionSlot}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`);
     }
     const repoName = config.repo.includes('/') ? config.repo.split('/')[1] : config.repo;
@@ -32094,16 +32101,29 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
     // Copy source tree into the version slot.
     await promises.cp(sourceDir, target, { recursive: true });
     // Walk the copied tree and apply base path correction to all .html files.
+    // [LAW:dataflow-not-control-flow] The walk + apply always runs. Which transform is applied
+    //   is data (the basePathMode enum picks a pure function). In 'none' mode the transform is
+    //   the identity — `none` is an explicit contract from the caller that their build already
+    //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
+    const transform = selectTransform(basePathMode);
     const htmlFiles = await findHtmlFiles(target);
     for (const file of htmlFiles) {
         const html = await promises.readFile(file, 'utf8');
-        const corrected = basePathMode === 'base-tag'
-            ? injectBaseHref(html, context.basePath, path$1.basename(file))
-            : rewriteUrls(html, context.basePath);
+        const corrected = transform(html, context.basePath, path$1.basename(file));
         await promises.writeFile(file, corrected, 'utf8');
     }
     // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
     await promises.writeFile(path$1.join(workdir, '.nojekyll'), '', { flag: 'a' });
+}
+function selectTransform(mode) {
+    if (mode === 'base-tag') {
+        return (html, basePath, filename) => injectBaseHref(html, basePath, filename);
+    }
+    if (mode === 'rewrite') {
+        return (html, basePath) => rewriteUrls(html, basePath);
+    }
+    // mode === 'none' — identity transform, documented no-op.
+    return (html) => html;
 }
 async function findHtmlFiles(dir) {
     const results = [];
@@ -32308,10 +32328,12 @@ Options:
   --source-dir=<path>          Directory containing the built site (required)
   --target-branch=<name>       Target gh-pages branch (default: gh-pages)
   --ref-patterns=<csv>         Comma-separated ref patterns to deploy
-  --base-path-mode=<mode>      base-tag | rewrite (default: base-tag)
+  --base-path-mode=<mode>      base-tag | rewrite | none (default: base-tag)
+                               'none' = caller set base URL at build time; skip rewriting
   --base-path-prefix=<prefix>  Override auto-detected base path prefix
   --repo=<owner/name>          Repository slug (default: $GITHUB_REPOSITORY)
   --ref=<refs/...>             Git ref being deployed (default: $GITHUB_REF)
+  --deploy-version=<name>      Explicit version slot (overrides ref-derived name)
   --debug                      Print full stack traces on error
   --help                       Show this help and exit
   --version                    Print version and exit
@@ -32356,6 +32378,7 @@ async function main(argv, env) {
                 'base-path-prefix': { type: 'string' },
                 'repo': { type: 'string' },
                 'ref': { type: 'string' },
+                'deploy-version': { type: 'string' },
                 'debug': { type: 'boolean' },
             },
         });
@@ -32381,8 +32404,8 @@ async function main(argv, env) {
         return 2;
     }
     const basePathMode = (parsed.values['base-path-mode'] ?? 'base-tag');
-    if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite') {
-        process.stderr.write(`Error: invalid --base-path-mode '${basePathMode}'. Must be 'base-tag' or 'rewrite'.\n`);
+    if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite' && basePathMode !== 'none') {
+        process.stderr.write(`Error: invalid --base-path-mode '${basePathMode}'. Must be 'base-tag', 'rewrite', or 'none'.\n`);
         return 2;
     }
     const refPatternsRaw = parsed.values['ref-patterns'];
@@ -32398,6 +32421,7 @@ async function main(argv, env) {
         token,
         repo: (parsed.values['repo'] ?? env.GITHUB_REPOSITORY ?? ''),
         ref: (parsed.values['ref'] ?? env.GITHUB_REF ?? ''),
+        version: (parsed.values['deploy-version'] ?? ''),
     };
     try {
         const result = await deploy(config, process.cwd());

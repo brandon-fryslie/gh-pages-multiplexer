@@ -11,15 +11,19 @@ inputs:
     required: false
     default: 'gh-pages'
   ref-patterns:
-    description: 'Glob patterns for refs that trigger deployment (comma-separated). Default: deploy all refs.'
+    description: 'Glob patterns for refs that trigger deployment (comma-separated). Default: deploy all refs. Bypassed when `version` is set.'
     required: false
     default: '*'
   base-path-mode:
-    description: 'Base path correction mode: "base-tag" (default) or "rewrite"'
+    description: 'Base path correction mode: "base-tag" (default), "rewrite", or "none". Use "none" when your build already sets the correct absolute base URL at build time (Vite `base`, Next.js `basePath`, Astro `base`, etc.) — the action will copy your files unchanged.'
     required: false
     default: 'base-tag'
   base-path-prefix:
     description: 'Override the repository base path (e.g., "/my-repo"). Auto-detected from GITHUB_REPOSITORY if not set.'
+    required: false
+    default: ''
+  version:
+    description: 'Explicit version slot name (e.g., "v1.2.3"). When set, overrides the ref-derived slot and bypasses ref-patterns filtering. Required if you want to deploy with a build-time base URL that matches a predetermined version path.'
     required: false
     default: ''
   token:

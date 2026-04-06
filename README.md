@@ -89,10 +89,37 @@ On every push of a `v*` tag, the built site lands at `https://<owner>.github.io/
 |---|---|---|---|
 | `source-dir` | **yes** | — | Directory containing built site to deploy (e.g. `dist`, `public`, `_site`) |
 | `target-branch` | no | `gh-pages` | Branch to deploy to |
-| `ref-patterns` | no | `*` | Comma-separated glob patterns; skip deploy if current ref doesn't match (e.g. `v*,main`) |
-| `base-path-mode` | no | `base-tag` | How to make deep relative assets resolve from the subdirectory. `base-tag` injects `<base href>`. `rewrite` rewrites `href`/`src` attributes directly. |
+| `ref-patterns` | no | `*` | Comma-separated glob patterns; skip deploy if current ref doesn't match (e.g. `v*,main`). Bypassed when `version` is set. |
+| `base-path-mode` | no | `base-tag` | How to make deep relative assets resolve. `base-tag` injects `<base href>`. `rewrite` rewrites `href`/`src` attributes directly. `none` skips rewriting entirely — use this when your build already sets the correct absolute base URL at build time. |
 | `base-path-prefix` | no | *(auto)* | Override repo base path. Auto-detected from `GITHUB_REPOSITORY` when unset. |
+| `version` | no | *(auto)* | Explicit version slot name (e.g. `v1.2.3`). When set, overrides the ref-derived slot and bypasses `ref-patterns` filtering. Required when pairing with `base-path-mode: none` so your build can compute the exact matching base URL. |
 | `token` | no | `${{ github.token }}` | Token with `contents: write` on the target branch |
+
+### Build-time base URL (recommended for SPAs and SSGs)
+
+If your build tool supports setting an absolute base URL at build time (Vite `base`, Next.js `basePath`, Astro `base`, SvelteKit `paths.base`, etc.), the **most reliable path** is to let your build emit correct URLs and tell this action to skip rewriting:
+
+```yaml
+- name: Compute version
+  id: version
+  run: echo "slot=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+- name: Build with explicit base URL
+  env:
+    # Adapt to your build tool:
+    VITE_BASE: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}/
+    # NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}
+    # ASTRO_BASE: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}/
+  run: npm run build
+
+- uses: brandon-fryslie/gh-pages-multiplexer@v1
+  with:
+    source-dir: dist
+    version: ${{ steps.version.outputs.slot }}
+    base-path-mode: none
+```
+
+Why this is better than `base-tag` / `rewrite`: your build tool already knows about every asset, every dynamic import, every CSS `url(...)`, and every framework-specific URL helper (`next/image`, Vite asset hashing, etc). Rewriting the emitted HTML after the fact can miss assets that aren't plain `href` / `src` attributes. Letting the build set the base URL and telling this action `none` means zero post-hoc mutation — the files deployed are byte-for-byte the files your build produced.
 
 ## Action outputs
 
@@ -131,11 +158,12 @@ npx gh-pages-multiplexer deploy \
 |---|---|
 | `--source-dir=<path>` | Built site directory (required) |
 | `--target-branch=<name>` | Target gh-pages branch (default: `gh-pages`) |
-| `--ref-patterns=<csv>` | Comma-separated ref patterns to deploy |
-| `--base-path-mode=<mode>` | `base-tag` or `rewrite` (default: `base-tag`) |
+| `--ref-patterns=<csv>` | Comma-separated ref patterns to deploy (bypassed when `--deploy-version` is set) |
+| `--base-path-mode=<mode>` | `base-tag`, `rewrite`, or `none` (default: `base-tag`) |
 | `--base-path-prefix=<prefix>` | Override auto-detected base path |
 | `--repo=<owner/name>` | Repository slug (default: `$GITHUB_REPOSITORY`) |
 | `--ref=<refs/...>` | Git ref to deploy (default: `$GITHUB_REF`) |
+| `--deploy-version=<name>` | Explicit version slot (overrides ref-derived name; required for `--base-path-mode=none`) |
 | `--debug` | Print full stack traces on error |
 
 ### Environment variables

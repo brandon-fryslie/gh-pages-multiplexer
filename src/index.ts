@@ -23,9 +23,9 @@ export function parseInputs(): DeployConfig {
     .filter((p) => p.length > 0);
 
   const basePathMode = core.getInput('base-path-mode');
-  if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite') {
+  if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite' && basePathMode !== 'none') {
     throw new Error(
-      `Invalid base-path-mode: "${basePathMode}". Must be "base-tag" or "rewrite".`,
+      `Invalid base-path-mode: "${basePathMode}". Must be "base-tag", "rewrite", or "none".`,
     );
   }
 
@@ -38,6 +38,7 @@ export function parseInputs(): DeployConfig {
     token: core.getInput('token'),
     repo: process.env.GITHUB_REPOSITORY ?? '',
     ref: process.env.GITHUB_REF ?? '',
+    version: core.getInput('version'),
   };
 }
 

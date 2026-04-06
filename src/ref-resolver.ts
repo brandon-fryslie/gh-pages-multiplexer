@@ -47,9 +47,16 @@ export function matchesPatterns(versionSlot: string, patterns: string[]): boolea
  * `cname` indicates a custom domain is configured on the gh-pages branch (Pitfall 6).
  */
 export function resolveContext(config: DeployConfig, cname = false): DeploymentContext {
-  const versionSlot = sanitizeRef(config.ref);
+  // [LAW:dataflow-not-control-flow] version is data: when present, it IS the slot; when absent,
+  //   the slot is derived from ref. sanitizeRef() is applied unconditionally to whichever input
+  //   wins, because path-safety is an invariant we enforce regardless of the source (T-01-01).
+  // Ref-pattern filtering is also data-driven: it exists to stop accidental deploys from the
+  //   wrong ref. An explicit version is an explicit decision to deploy, so filtering is bypassed
+  //   by encoding "explicit version deploys always match" in the match input.
+  const hasExplicitVersion = config.version.length > 0;
+  const versionSlot = sanitizeRef(hasExplicitVersion ? config.version : config.ref);
 
-  if (!matchesPatterns(versionSlot, config.refPatterns)) {
+  if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
     throw new Error(
       `Ref ${config.ref} (slot ${versionSlot}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`
     );

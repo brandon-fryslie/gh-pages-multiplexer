@@ -6,11 +6,16 @@ export interface DeployConfig {
   sourceDir: string;
   targetBranch: string;
   refPatterns: string[];
-  basePathMode: 'base-tag' | 'rewrite';
+  // 'none' — caller has already set the correct base URL at build time; skip HTML rewriting entirely.
+  basePathMode: 'base-tag' | 'rewrite' | 'none';
   basePathPrefix: string; // empty string means auto-detect
   token: string;
   repo: string; // owner/repo from GITHUB_REPOSITORY
   ref: string; // full ref from GITHUB_REF
+  // Explicit version override. When set, this is used as the version slot directly
+  // (still sanitized for path safety) and ref-pattern filtering is bypassed. When
+  // empty, the version is derived from `ref` via sanitizeRef() as before.
+  version: string;
 }
 
 /** Context derived from the git ref */

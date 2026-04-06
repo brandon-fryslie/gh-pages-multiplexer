@@ -12,6 +12,7 @@ const baseConfig = (overrides: Partial<DeployConfig> = {}): DeployConfig => ({
   token: 'x',
   repo: 'owner/my-repo',
   ref: 'refs/heads/main',
+  version: '',
   ...overrides,
 });
 
@@ -134,5 +135,44 @@ describe('resolveContext', () => {
     expect(() =>
       resolveContext(baseConfig({ ref: 'refs/heads/feature-x', refPatterns: ['v*'] }))
     ).toThrow(/does not match/);
+  });
+
+  it('explicit version overrides ref-derived slot', () => {
+    const ctx = resolveContext(
+      baseConfig({ ref: 'refs/heads/main', version: 'v1.2.3' })
+    );
+    expect(ctx.versionSlot).toBe('v1.2.3');
+    expect(ctx.basePath).toBe('/my-repo/v1.2.3/');
+    expect(ctx.originalRef).toBe('refs/heads/main');
+  });
+
+  it('explicit version bypasses ref-pattern filtering', () => {
+    // Ref is main, patterns only allow v* — would normally throw.
+    // Explicit version short-circuits the filter.
+    const ctx = resolveContext(
+      baseConfig({
+        ref: 'refs/heads/main',
+        refPatterns: ['v*'],
+        version: 'explicit-slot',
+      })
+    );
+    expect(ctx.versionSlot).toBe('explicit-slot');
+  });
+
+  it('explicit version is still sanitized for path safety', () => {
+    // Even though the caller claims ownership, path-traversal is a hard invariant.
+    const ctx = resolveContext(
+      baseConfig({ ref: 'refs/heads/main', version: '../../../etc/passwd' })
+    );
+    expect(ctx.versionSlot).toBe('etc-passwd');
+    expect(ctx.versionSlot).not.toContain('..');
+    expect(ctx.versionSlot).not.toContain('/');
+  });
+
+  it('empty version field falls back to ref-derived slot', () => {
+    const ctx = resolveContext(
+      baseConfig({ ref: 'refs/tags/v3.0.0', version: '' })
+    );
+    expect(ctx.versionSlot).toBe('v3.0.0');
   });
 });

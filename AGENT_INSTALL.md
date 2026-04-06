@@ -22,7 +22,7 @@ Before touching anything, fetch and read the authoritative inputs/outputs so you
 Key facts from the action:
 
 - **Required input:** `source-dir` (directory containing the built static site)
-- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default `*`), `base-path-mode` (`base-tag` | `rewrite`, default `base-tag`), `base-path-prefix`, `token`
+- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default `*`), `base-path-mode` (`base-tag` | `rewrite` | `none`, default `base-tag`), `base-path-prefix`, `version`, `token`
 - **Outputs:** `version`, `url`
 - **Runtime:** `node24` — the consumer workflow does not need to set up Node; the Action brings its own
 - **Prerequisite:** `actions/checkout@v4` with `fetch-depth: 0` (git metadata extraction needs full history)
@@ -53,6 +53,20 @@ Run these checks (use the file tools available to you — do not shell out unnec
 5. **What is the repo's default branch?** Read `.git/HEAD` or `git symbolic-ref refs/remotes/origin/HEAD`. It's usually `main` but don't assume.
 6. **Does the user want PR previews?** Ask once, briefly. Default to yes if they don't care.
 7. **Does the repo have a `CNAME` file anywhere (custom domain)?** If so, note it — the action does not currently rewrite custom-domain CNAMEs; preview URLs will show the `github.io` URL. Tell the user.
+8. **Does the build tool support a build-time base URL?** This is important — it unlocks the most reliable path. Check the config files:
+   - **Vite** (`vite.config.*`): supports `base: '/path/'`, either hard-coded or via `import.meta.env.BASE_URL` / `process.env.VITE_BASE`
+   - **Next.js** (`next.config.*`): supports `basePath: '/path'` and `assetPrefix`
+   - **Astro** (`astro.config.*`): supports `base: '/path/'`, often via `import.meta.env.BASE_URL` or `process.env.BASE`
+   - **SvelteKit** (`svelte.config.*`): supports `kit.paths.base: '/path'`
+   - **Nuxt** (`nuxt.config.*`): supports `app.baseURL: '/path/'`
+   - **VitePress / VuePress / Docusaurus**: each has a `base` option in their config
+   - **create-react-app / react-scripts**: supports `PUBLIC_URL` env var at build time
+   - **Hugo**: `--baseURL=` flag or `baseURL` in config
+   - **Jekyll**: `baseurl` in `_config.yml` (but typically set statically — harder to parameterize per deploy)
+   - **mkdocs**: `site_url` in `mkdocs.yml`
+   - **Raw HTML with no build** — no build-time base URL is possible; fall back to `base-path-mode: base-tag` or `rewrite`.
+
+   If the build tool supports a build-time base URL **and** the config already reads it from an environment variable (or can be easily refactored to), you can use the **preferred path** in step 4 below: pass an explicit `version` to the action AND set `base-path-mode: none`, after rebuilding the site with the matching base URL. This is more reliable than post-hoc HTML rewriting because the build tool knows about every asset reference (framework image helpers, dynamic imports, CSS `url(...)`, etc.) that a regex-based rewrite might miss.
 
 ## 2. Decide the integration mode
 
@@ -92,15 +106,20 @@ If you cannot determine a convention with confidence, read 2–3 existing workfl
 
 ## 4. Write the workflow
 
-Assemble the workflow. Below is the **canonical reference** — adapt it to the detected conventions, build command, and output directory:
+Pick the right path based on what you found in §1 step 8:
+
+- **Path A — Build-time base URL (preferred when possible).** The build tool supports setting an absolute base URL at build time (Vite, Next.js, Astro, SvelteKit, etc.). Use this when available — it's more reliable than post-hoc rewriting because the build tool knows about every asset reference.
+- **Path B — Post-hoc rewriting (fallback).** The build doesn't support a base URL, or the site is static HTML with no build. The action injects `<base href>` or rewrites URLs after the fact.
+
+### Path A (preferred) — explicit version + `base-path-mode: none`
 
 ```yaml
 name: Deploy
 on:
   push:
     branches: [main]        # or whatever the default branch is
-    tags: ['v*']            # deploy tagged releases as stable versions
-  pull_request:             # omit this line if the user declined PR previews
+    tags: ['v*']
+  pull_request:             # omit if user declined PR previews
 
 concurrency:
   group: pages-deploy
@@ -117,27 +136,97 @@ jobs:
         with:
           fetch-depth: 0
 
-      # === BUILD STEP — customize per framework ===
+      - name: Compute version slot
+        id: version
+        run: |
+          # For tag pushes → use the tag. For branches → use branch name. For PRs → pr-N.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "slot=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "slot=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "slot=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'  # or 18, 22 — match whatever runs the build locally
+          node-version: '20'
       - run: npm ci
-      - run: npm run build
-      # =============================================
+      - name: Build with explicit base URL
+        env:
+          # Pick ONE of these based on the detected build tool:
+          VITE_BASE: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}/
+          # NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}
+          # ASTRO_BASE: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}/
+          # PUBLIC_URL: /${{ github.event.repository.name }}/${{ steps.version.outputs.slot }}
+        run: npm run build
 
       - uses: brandon-fryslie/gh-pages-multiplexer@v1
         with:
-          source-dir: dist        # adapt to the framework's output directory
-          base-path-mode: rewrite # rewrite is safer for SPAs / pre-existing <base> tags
+          source-dir: dist                               # adapt to framework output dir
+          version: ${{ steps.version.outputs.slot }}     # must match the base URL you built with
+          base-path-mode: none                           # the build already set URLs correctly
 ```
 
-**Critical rules when adapting:**
+**Critical:** the `version:` input and the base URL you pass to the build tool **must match exactly**. If they drift, assets will 404. The single source of truth is `steps.version.outputs.slot` — reference it in both places, never hand-copy.
+
+Make sure the repo's build tool config actually reads from the environment variable you set. Examples:
+
+- **Vite:** `export default { base: process.env.VITE_BASE || '/' }`
+- **Next.js:** `module.exports = { basePath: process.env.NEXT_PUBLIC_BASE_PATH || '' }`
+- **Astro:** `export default { base: process.env.ASTRO_BASE || '/' }`
+- **SvelteKit:** `kit: { paths: { base: process.env.SVELTE_BASE || '' } }`
+
+If the config hard-codes a different value, you'll need to refactor it to read from the env var. Ask the user before modifying build config.
+
+### Path B (fallback) — post-hoc rewriting
+
+Use this when there's no build-time base URL, the site is raw HTML, or the build tool can't be easily configured to read from env vars.
+
+```yaml
+name: Deploy
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # === BUILD STEP — customize per framework, or omit if site is pre-built ===
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npm run build
+      # =========================================================================
+
+      - uses: brandon-fryslie/gh-pages-multiplexer@v1
+        with:
+          source-dir: dist
+          base-path-mode: rewrite   # 'rewrite' is safer for SPAs; 'base-tag' for simple sites
+```
+
+### Critical rules for both paths
 
 - `fetch-depth: 0` is **non-negotiable**. Without it, git metadata extraction fails loudly. Do not omit it to "speed up checkout."
-- Do **not** add `actions/setup-node` before the `gh-pages-multiplexer` step — the Action bundles its own Node 24 runtime. `setup-node` is only for your **build** step.
-- If the user's site is pre-built and committed (no build step), skip the build section entirely and point `source-dir` at the existing folder (`docs`, `site`, `public`, whatever).
-- If the site is a SPA or has `<base href>` in its HTML template, use `base-path-mode: rewrite`. Otherwise leave it as `base-tag` (the default).
-- If the user only wants certain refs deployed (e.g. "only tags"), set `ref-patterns: 'v*'` or `'refs/tags/v*'`.
+- Do **not** add `actions/setup-node` before the `gh-pages-multiplexer` step to set up Node **for the action** — the Action bundles its own Node 24 runtime. `setup-node` is only for your **build** step.
+- If the user's site is pre-built and committed (no build step), skip the build section entirely and point `source-dir` at the existing folder (`docs`, `site`, `public`, whatever). In that case Path A doesn't apply — use Path B with `base-path-mode: base-tag` (default) or `rewrite`.
+- If the user only wants certain refs deployed (e.g. "only tags"), set `ref-patterns: 'v*'` or `'refs/tags/v*'`. Note: `ref-patterns` is **ignored** when `version:` is set in Path A — the explicit version is interpreted as "deploy this no matter what."
+- Path A (`base-path-mode: none`) + no `version:` is a **configuration error** — the default version is derived from the ref, but in Path A you explicitly want it to match the base URL you built with. Always set both, or neither.
 
 ## 5. Enable GitHub Pages in repo settings
 

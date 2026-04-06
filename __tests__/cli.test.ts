@@ -169,4 +169,38 @@ describe('cli main()', () => {
     // either unknown-flag error or missing-token error; either way stderr mentions env vars or token
     expect(stderr().toLowerCase()).toMatch(/token|env/);
   });
+
+  it('--deploy-version sets explicit version override in config', async () => {
+    const code = await main(
+      ['deploy', '--source-dir=dist', '--repo=o/n', '--ref=refs/heads/main', '--deploy-version=v2.5.0'],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(0);
+    expect(vi.mocked(deploy).mock.calls[0][0].version).toBe('v2.5.0');
+  });
+
+  it('version defaults to empty string when --deploy-version omitted', async () => {
+    const code = await main(FULL_ARGV, { GITHUB_TOKEN: 'x' });
+    expect(code).toBe(0);
+    expect(vi.mocked(deploy).mock.calls[0][0].version).toBe('');
+  });
+
+  it('--base-path-mode=none is accepted', async () => {
+    const code = await main(
+      ['deploy', '--source-dir=dist', '--repo=o/n', '--ref=refs/heads/main', '--base-path-mode=none'],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(0);
+    expect(vi.mocked(deploy).mock.calls[0][0].basePathMode).toBe('none');
+  });
+
+  it('--base-path-mode=bogus is rejected', async () => {
+    const code = await main(
+      ['deploy', '--source-dir=dist', '--repo=o/n', '--ref=refs/heads/main', '--base-path-mode=bogus'],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(2);
+    expect(stderr()).toContain('base-tag');
+    expect(stderr()).toContain('none');
+  });
 });

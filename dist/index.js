@@ -36408,8 +36408,15 @@ function matchesPatterns(versionSlot, patterns) {
  * `cname` indicates a custom domain is configured on the gh-pages branch (Pitfall 6).
  */
 function resolveContext(config, cname = false) {
-    const versionSlot = sanitizeRef(config.ref);
-    if (!matchesPatterns(versionSlot, config.refPatterns)) {
+    // [LAW:dataflow-not-control-flow] version is data: when present, it IS the slot; when absent,
+    //   the slot is derived from ref. sanitizeRef() is applied unconditionally to whichever input
+    //   wins, because path-safety is an invariant we enforce regardless of the source (T-01-01).
+    // Ref-pattern filtering is also data-driven: it exists to stop accidental deploys from the
+    //   wrong ref. An explicit version is an explicit decision to deploy, so filtering is bypassed
+    //   by encoding "explicit version deploys always match" in the match input.
+    const hasExplicitVersion = config.version.length > 0;
+    const versionSlot = sanitizeRef(hasExplicitVersion ? config.version : config.ref);
+    if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
         throw new Error(`Ref ${config.ref} (slot ${versionSlot}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`);
     }
     const repoName = config.repo.includes('/') ? config.repo.split('/')[1] : config.repo;
@@ -37108,16 +37115,29 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
     // Copy source tree into the version slot.
     await promises.cp(sourceDir, target, { recursive: true });
     // Walk the copied tree and apply base path correction to all .html files.
+    // [LAW:dataflow-not-control-flow] The walk + apply always runs. Which transform is applied
+    //   is data (the basePathMode enum picks a pure function). In 'none' mode the transform is
+    //   the identity — `none` is an explicit contract from the caller that their build already
+    //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
+    const transform = selectTransform(basePathMode);
     const htmlFiles = await findHtmlFiles(target);
     for (const file of htmlFiles) {
         const html = await promises.readFile(file, 'utf8');
-        const corrected = basePathMode === 'base-tag'
-            ? injectBaseHref(html, context.basePath, path$1.basename(file))
-            : rewriteUrls(html, context.basePath);
+        const corrected = transform(html, context.basePath, path$1.basename(file));
         await promises.writeFile(file, corrected, 'utf8');
     }
     // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
     await promises.writeFile(path$1.join(workdir, '.nojekyll'), '', { flag: 'a' });
+}
+function selectTransform(mode) {
+    if (mode === 'base-tag') {
+        return (html, basePath, filename) => injectBaseHref(html, basePath, filename);
+    }
+    if (mode === 'rewrite') {
+        return (html, basePath) => rewriteUrls(html, basePath);
+    }
+    // mode === 'none' — identity transform, documented no-op.
+    return (html) => html;
 }
 async function findHtmlFiles(dir) {
     const results = [];
@@ -37404,8 +37424,8 @@ function parseInputs() {
         .map((p) => p.trim())
         .filter((p) => p.length > 0);
     const basePathMode = getInput('base-path-mode');
-    if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite') {
-        throw new Error(`Invalid base-path-mode: "${basePathMode}". Must be "base-tag" or "rewrite".`);
+    if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite' && basePathMode !== 'none') {
+        throw new Error(`Invalid base-path-mode: "${basePathMode}". Must be "base-tag", "rewrite", or "none".`);
     }
     return {
         sourceDir: getInput('source-dir', { required: true }),
@@ -37416,6 +37436,7 @@ function parseInputs() {
         token: getInput('token'),
         repo: process.env.GITHUB_REPOSITORY ?? '',
         ref: process.env.GITHUB_REF ?? '',
+        version: getInput('version'),
     };
 }
 async function run() {

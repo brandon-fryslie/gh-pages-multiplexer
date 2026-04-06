@@ -18,7 +18,7 @@ export async function placeContent(
   workdir: string,
   sourceDir: string,
   context: DeploymentContext,
-  basePathMode: 'base-tag' | 'rewrite'
+  basePathMode: 'base-tag' | 'rewrite' | 'none'
 ): Promise<void> {
   const target = path.join(workdir, context.versionSlot);
 
@@ -29,18 +29,33 @@ export async function placeContent(
   await cp(sourceDir, target, { recursive: true });
 
   // Walk the copied tree and apply base path correction to all .html files.
+  // [LAW:dataflow-not-control-flow] The walk + apply always runs. Which transform is applied
+  //   is data (the basePathMode enum picks a pure function). In 'none' mode the transform is
+  //   the identity — `none` is an explicit contract from the caller that their build already
+  //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
+  const transform = selectTransform(basePathMode);
   const htmlFiles = await findHtmlFiles(target);
   for (const file of htmlFiles) {
     const html = await readFile(file, 'utf8');
-    const corrected =
-      basePathMode === 'base-tag'
-        ? injectBaseHref(html, context.basePath, path.basename(file))
-        : rewriteUrls(html, context.basePath);
+    const corrected = transform(html, context.basePath, path.basename(file));
     await writeFile(file, corrected, 'utf8');
   }
 
   // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
   await writeFile(path.join(workdir, '.nojekyll'), '', { flag: 'a' });
+}
+
+type HtmlTransform = (html: string, basePath: string, filename: string) => string;
+
+function selectTransform(mode: 'base-tag' | 'rewrite' | 'none'): HtmlTransform {
+  if (mode === 'base-tag') {
+    return (html, basePath, filename) => injectBaseHref(html, basePath, filename);
+  }
+  if (mode === 'rewrite') {
+    return (html, basePath) => rewriteUrls(html, basePath);
+  }
+  // mode === 'none' — identity transform, documented no-op.
+  return (html) => html;
 }
 
 async function findHtmlFiles(dir: string): Promise<string[]> {

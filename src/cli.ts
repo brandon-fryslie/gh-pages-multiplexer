@@ -20,10 +20,12 @@ Options:
   --source-dir=<path>          Directory containing the built site (required)
   --target-branch=<name>       Target gh-pages branch (default: gh-pages)
   --ref-patterns=<csv>         Comma-separated ref patterns to deploy
-  --base-path-mode=<mode>      base-tag | rewrite (default: base-tag)
+  --base-path-mode=<mode>      base-tag | rewrite | none (default: base-tag)
+                               'none' = caller set base URL at build time; skip rewriting
   --base-path-prefix=<prefix>  Override auto-detected base path prefix
   --repo=<owner/name>          Repository slug (default: $GITHUB_REPOSITORY)
   --ref=<refs/...>             Git ref being deployed (default: $GITHUB_REF)
+  --deploy-version=<name>      Explicit version slot (overrides ref-derived name)
   --debug                      Print full stack traces on error
   --help                       Show this help and exit
   --version                    Print version and exit
@@ -73,6 +75,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         'base-path-prefix': { type: 'string' },
         'repo': { type: 'string' },
         'ref': { type: 'string' },
+        'deploy-version': { type: 'string' },
         'debug': { type: 'boolean' },
       },
     });
@@ -105,8 +108,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   }
 
   const basePathMode = (parsed.values['base-path-mode'] ?? 'base-tag') as string;
-  if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite') {
-    process.stderr.write(`Error: invalid --base-path-mode '${basePathMode}'. Must be 'base-tag' or 'rewrite'.\n`);
+  if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite' && basePathMode !== 'none') {
+    process.stderr.write(`Error: invalid --base-path-mode '${basePathMode}'. Must be 'base-tag', 'rewrite', or 'none'.\n`);
     return 2;
   }
 
@@ -119,11 +122,12 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     sourceDir: parsed.values['source-dir'] as string,
     targetBranch: (parsed.values['target-branch'] ?? 'gh-pages') as string,
     refPatterns,
-    basePathMode: basePathMode as 'base-tag' | 'rewrite',
+    basePathMode: basePathMode as 'base-tag' | 'rewrite' | 'none',
     basePathPrefix: (parsed.values['base-path-prefix'] ?? '') as string,
     token,
     repo: (parsed.values['repo'] ?? env.GITHUB_REPOSITORY ?? '') as string,
     ref: (parsed.values['ref'] ?? env.GITHUB_REF ?? '') as string,
+    version: (parsed.values['deploy-version'] ?? '') as string,
   };
 
   try {

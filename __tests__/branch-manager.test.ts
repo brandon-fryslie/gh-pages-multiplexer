@@ -32,6 +32,7 @@ const baseConfig: DeployConfig = {
   token: 'ghs_token123',
   repo: 'owner/repo',
   ref: 'refs/tags/v1.0.0',
+  version: '',
 };
 
 const ctx: DeploymentContext = {

@@ -87,4 +87,31 @@ describe('placeContent', () => {
     const html = await readFile(path.join(workdir, 'v1', 'sub', 'page.html'), 'utf8');
     expect(html).toContain('<base href="/repo/v1/">');
   });
+
+  it("'none' mode copies HTML byte-for-byte without rewriting", async () => {
+    // Simulates a build that already set the correct absolute base URL at build time.
+    const original = '<!doctype html><html><head><link rel="stylesheet" href="/repo/v1/assets/style.css"></head><body><img src="/repo/v1/img.png"></body></html>';
+    await writeFile(path.join(sourceDir, 'index.html'), original);
+    await placeContent(workdir, sourceDir, context('v1'), 'none');
+    const html = await readFile(path.join(workdir, 'v1', 'index.html'), 'utf8');
+    expect(html).toBe(original);
+    // No <base href> injected
+    expect(html).not.toContain('<base href=');
+    // URLs unchanged
+    expect(html).toContain('href="/repo/v1/assets/style.css"');
+    expect(html).toContain('src="/repo/v1/img.png"');
+  });
+
+  it("'none' mode still copies non-html files", async () => {
+    await writeFile(path.join(sourceDir, 'index.html'), '<html><head></head></html>');
+    await writeFile(path.join(sourceDir, 'app.js'), 'console.log("hi")');
+    await placeContent(workdir, sourceDir, context('v1'), 'none');
+    expect((await stat(path.join(workdir, 'v1', 'app.js'))).isFile()).toBe(true);
+  });
+
+  it("'none' mode still creates .nojekyll at workdir root", async () => {
+    await writeFile(path.join(sourceDir, 'index.html'), '<html><head></head></html>');
+    await placeContent(workdir, sourceDir, context('v1'), 'none');
+    expect((await stat(path.join(workdir, '.nojekyll'))).isFile()).toBe(true);
+  });
 });
