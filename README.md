@@ -30,7 +30,17 @@ Every deployed page gets a small floating nav widget (Shadow-DOM-isolated) so us
 
 ---
 
-## Quick start (GitHub Action)
+## Install via agent (recommended)
+
+If you're using a coding agent (Claude Code, Cursor, Aider, Copilot, etc.), point it at **[AGENT_INSTALL.md](./AGENT_INSTALL.md)** and let it detect your build system, match your existing workflow conventions, and wire everything up:
+
+> *"Follow the instructions at https://github.com/brandon-fryslie/gh-pages-multiplexer/blob/main/AGENT_INSTALL.md"*
+
+The agent will inspect your repo, pick the right output directory, integrate with existing workflows if any, and enable GitHub Pages in the repo settings.
+
+---
+
+## Quick start (GitHub Action, manual)
 
 Add a workflow at `.github/workflows/deploy.yml`:
 
