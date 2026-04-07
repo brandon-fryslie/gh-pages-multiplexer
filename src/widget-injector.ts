@@ -44,7 +44,7 @@ const SHADOW_CSS = `
   --handle-fg: #ffffff;
   /* Drawer geometry (single source of truth for the slide math). */
   --panel-width: 240px;
-  --handle-width: 52px;
+  --handle-width: 44px;
   --peek: 10px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
@@ -101,39 +101,59 @@ const SHADOW_CSS = `
   border-bottom-left-radius: 14px;
   box-shadow: -4px 0 16px rgba(0,0,0,0.22), inset 1px 0 0 rgba(255,255,255,0.15);
   cursor: pointer;
-  /* Min height is driven by content: icon (22) + gap (6) + text (~14) + padding (16) ≈ 58px.
-     No explicit min-height — the handle shrink-wraps its children. */
+  /* Padding is content-driven; the icon and label have their own transitions and the
+     handle shrink-wraps to match (no min-height). */
   padding: 8px 6px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 0;
   font-family: inherit;
   font-weight: 600;
   letter-spacing: 0.01em;
   flex: 0 0 auto;
+  transition: padding 180ms ease-out;
 }
 .handle:hover { background: var(--handle-bg-hover); }
 .handle:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: -4px;
 }
+/* [LAW:dataflow-not-control-flow] Closed state shows a small icon only. Hover or open
+   state expands the icon and reveals the label. The CSS always applies, the difference
+   is data — the .open class and the :hover pseudo. No JS state-toggling for these. */
 .handle svg {
-  width: 22px;
-  height: 22px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
   display: block;
+  transition: width 180ms ease-out, height 180ms ease-out;
+}
+.drawer:hover .handle svg,
+.drawer.open .handle svg {
+  width: 22px;
+  height: 22px;
 }
 .handle .ver {
   font-size: 11px;
   line-height: 1.15;
   max-width: 40px;
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   text-align: center;
+  transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out;
+}
+.drawer:hover .handle .ver,
+.drawer.open .handle .ver {
+  max-height: 16px;
+  margin-top: 6px;
+  opacity: 1;
 }
 .panel {
   width: var(--panel-width);
