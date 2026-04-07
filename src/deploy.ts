@@ -65,6 +65,12 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
       workdir,
       context.versionSlot,
       { owner: repoOwner, repo: repoName },
+      {
+        icon: config.widgetIcon,
+        label: config.widgetLabel,
+        position: config.widgetPosition,
+        color: config.widgetColor,
+      },
     );
     core.info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
 

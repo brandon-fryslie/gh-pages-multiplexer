@@ -203,4 +203,46 @@ describe('cli main()', () => {
     expect(stderr()).toContain('base-tag');
     expect(stderr()).toContain('none');
   });
+
+  it('widget customization flags flow into config', async () => {
+    const code = await main(
+      [
+        'deploy',
+        '--source-dir=dist',
+        '--repo=o/n',
+        '--ref=refs/heads/main',
+        '--widget-icon=<svg><circle/></svg>',
+        '--widget-label=Docs {version}',
+        '--widget-position=left 50%',
+        '--widget-color=#10b981',
+      ],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(0);
+    const cfg = vi.mocked(deploy).mock.calls[0][0];
+    expect(cfg.widgetIcon).toBe('<svg><circle/></svg>');
+    expect(cfg.widgetLabel).toBe('Docs {version}');
+    expect(cfg.widgetPosition).toBe('left 50%');
+    expect(cfg.widgetColor).toBe('#10b981');
+  });
+
+  it('--widget-position with invalid format → exit 2', async () => {
+    const code = await main(
+      ['deploy', '--source-dir=dist', '--repo=o/n', '--ref=refs/heads/main', '--widget-position=down 20px'],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(2);
+    expect(stderr()).toContain('widget-position');
+    expect(deploy).not.toHaveBeenCalled();
+  });
+
+  it('--widget-color with named color → exit 2', async () => {
+    const code = await main(
+      ['deploy', '--source-dir=dist', '--repo=o/n', '--ref=refs/heads/main', '--widget-color=orange'],
+      { GITHUB_TOKEN: 'x' },
+    );
+    expect(code).toBe(2);
+    expect(stderr()).toContain('widget-color');
+    expect(deploy).not.toHaveBeenCalled();
+  });
 });

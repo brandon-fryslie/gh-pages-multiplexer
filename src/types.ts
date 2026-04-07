@@ -16,6 +16,13 @@ export interface DeployConfig {
   // (still sanitized for path safety) and ref-pattern filtering is bypassed. When
   // empty, the version is derived from `ref` via sanitizeRef() as before.
   version: string;
+  // Widget customization. Empty strings mean "use the built-in default" (handled by
+  // widget-injector). Validation of position format and edge enum lives in the input
+  // adapters (Action and CLI), not in deploy(), so the pipeline core stays config-agnostic.
+  widgetIcon: string;          // SVG markup; empty = built-in layers icon
+  widgetLabel: string;         // text with optional {version} token; empty = "{version}"
+  widgetPosition: string;      // "<edge> <vertical%>" e.g. "right 80%"; empty = "right 80%"
+  widgetColor: string;         // hex color for handle background; empty = "#f97316"
 }
 
 /** Context derived from the git ref */

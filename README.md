@@ -93,6 +93,10 @@ On every push of a `v*` tag, the built site lands at `https://<owner>.github.io/
 | `base-path-mode` | no | `base-tag` | How to make deep relative assets resolve. `base-tag` injects `<base href>`. `rewrite` rewrites `href`/`src` attributes directly. `none` skips rewriting entirely — use this when your build already sets the correct absolute base URL at build time. |
 | `base-path-prefix` | no | *(auto)* | Override repo base path. Auto-detected from `GITHUB_REPOSITORY` when unset. |
 | `version` | no | *(auto)* | Explicit version slot name (e.g. `v1.2.3`). When set, overrides the ref-derived slot and bypasses `ref-patterns` filtering. Required when pairing with `base-path-mode: none` so your build can compute the exact matching base URL. |
+| `widget-icon` | no | layers icon | Custom SVG markup for the navigation widget icon. Must be a complete `<svg>...</svg>` element. |
+| `widget-label` | no | `{version}` | Label text shown on the widget handle when hovered. Supports the `{version}` token. |
+| `widget-position` | no | `right 80%` | Where the widget tab appears, in the form `<edge> <vertical%>`. Edge is `right` or `left`. Vertical is a percentage from the top. |
+| `widget-color` | no | `#f97316` | Hex color for the widget handle background. |
 | `token` | no | `${{ github.token }}` | Token with `contents: write` on the target branch |
 
 ### Build-time base URL (recommended for SPAs and SSGs)
@@ -120,6 +124,31 @@ If your build tool supports setting an absolute base URL at build time (Vite `ba
 ```
 
 Why this is better than `base-tag` / `rewrite`: your build tool already knows about every asset, every dynamic import, every CSS `url(...)`, and every framework-specific URL helper (`next/image`, Vite asset hashing, etc). Rewriting the emitted HTML after the fact can miss assets that aren't plain `href` / `src` attributes. Letting the build set the base URL and telling this action `none` means zero post-hoc mutation — the files deployed are byte-for-byte the files your build produced.
+
+### Customizing the widget
+
+The floating navigation widget is fully customizable. All widget inputs are optional — defaults are sane.
+
+```yaml
+- uses: brandon-fryslie/gh-pages-multiplexer@v1
+  with:
+    source-dir: dist
+    widget-icon: |
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    widget-label: "Docs {version}"
+    widget-position: "left 50%"
+    widget-color: "#10b981"
+```
+
+Notes:
+- **`widget-icon`** accepts any complete `<svg>` element. The SVG inherits the handle's foreground color via `currentColor`, so use `stroke="currentColor"` or `fill="currentColor"` for your paths.
+- **`widget-label`** supports a single `{version}` token that's replaced with the deployed version slot at runtime (e.g. `Docs {version}` → `Docs v1.2.3`). The label is hidden in the closed state and revealed on hover.
+- **`widget-position`** is `<edge> <vertical%>` — `edge` is `right` (default) or `left`, `vertical` is a percentage `0%`–`100%` from the top of the viewport. The handle's vertical center sits on this line. Recommended range: `20%`–`80%` so the panel doesn't extend past the viewport edges when opened.
+- **`widget-color`** is the handle background. Foreground (icon + label) is white. Hover darkens via CSS `filter: brightness(0.92)` so the same color works without specifying a separate hover shade.
 
 ## Action outputs
 
@@ -164,6 +193,10 @@ npx gh-pages-multiplexer deploy \
 | `--repo=<owner/name>` | Repository slug (default: `$GITHUB_REPOSITORY`) |
 | `--ref=<refs/...>` | Git ref to deploy (default: `$GITHUB_REF`) |
 | `--deploy-version=<name>` | Explicit version slot (overrides ref-derived name; required for `--base-path-mode=none`) |
+| `--widget-icon=<svg>` | Custom SVG markup for the widget icon |
+| `--widget-label=<text>` | Widget label, supports `{version}` token |
+| `--widget-position=<spec>` | Widget location: `<edge> <vertical%>` (e.g. `right 80%`) |
+| `--widget-color=<hex>` | Hex color for the widget handle background |
 | `--debug` | Print full stack traces on error |
 
 ### Environment variables

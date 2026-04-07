@@ -29,6 +29,10 @@ const opts = {
   manifestUrl: '../versions.json',
   indexUrl: '../',
   currentVersion: 'v1.0.0',
+  icon: '',
+  label: '',
+  position: '',
+  color: '',
 };
 
 describe('getWidgetScriptTag (pure)', () => {
@@ -49,6 +53,10 @@ describe('getWidgetScriptTag (pure)', () => {
       manifestUrl: '../versions.json',
       indexUrl: '../',
       currentVersion: 'v1.2.3',
+      icon: '',
+      label: '',
+      position: '',
+      color: '',
     });
     expect(out).toContain('../versions.json');
     expect(out).toContain('../');
@@ -97,6 +105,10 @@ describe('getWidgetScriptTag (pure)', () => {
       manifestUrl: '../versions.json',
       indexUrl: '../',
       currentVersion: evil,
+      icon: '',
+      label: '',
+      position: '',
+      color: '',
     });
     // first </script> must be at the very end
     const firstClose = out.indexOf('</script>');
@@ -104,6 +116,46 @@ describe('getWidgetScriptTag (pure)', () => {
     expect(firstClose).toBe(lastClose);
     // Raw evil string must not appear
     expect(out).not.toContain(evil);
+  });
+
+  it('Test 21: custom icon SVG is inlined and resolvable at runtime', () => {
+    const customIcon = '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>';
+    const out = getWidgetScriptTag({ ...opts, icon: customIcon });
+    // The SVG markup ends up inside a JS string in the inlined script.
+    // JSON.stringify escapes some chars; we just confirm a recognizable substring.
+    expect(out).toContain('circle cx');
+    expect(out).toContain('viewBox');
+  });
+
+  it('Test 22: custom label with {version} token gets the placeholder substituted at runtime', () => {
+    // We can't run the JS here, but we can verify the substitution code is present
+    // and the literal label template is inlined.
+    const out = getWidgetScriptTag({ ...opts, label: 'Docs {version}' });
+    expect(out).toContain('Docs {version}');
+    expect(out).toContain("LABEL_TEMPLATE.split('{version}').join(CURRENT)");
+  });
+
+  it('Test 23: custom widget-position is inlined verbatim', () => {
+    const out = getWidgetScriptTag({ ...opts, position: 'left 50%' });
+    expect(out).toContain('left 50%');
+  });
+
+  it('Test 24: custom widget-color is inlined and applied to --handle-bg at runtime', () => {
+    const out = getWidgetScriptTag({ ...opts, color: '#10b981' });
+    expect(out).toContain('#10b981');
+    expect(out).toContain("setProperty('--handle-bg'");
+  });
+
+  it('Test 25: defaults are used when opts fields are empty strings', () => {
+    const out = getWidgetScriptTag(opts);
+    // Default icon: layers SVG paths
+    expect(out).toContain('M12.83 2.18');
+    // Default label template: {version}
+    expect(out).toContain('{version}');
+    // Default position: right 80%
+    expect(out).toContain('right 80%');
+    // Default color: bright orange
+    expect(out).toContain('#f97316');
   });
 
   it('Test 9: deterministic / pure', () => {

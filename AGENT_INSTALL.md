@@ -22,7 +22,8 @@ Before touching anything, fetch and read the authoritative inputs/outputs so you
 Key facts from the action:
 
 - **Required input:** `source-dir` (directory containing the built static site)
-- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default `*`), `base-path-mode` (`base-tag` | `rewrite` | `none`, default `base-tag`), `base-path-prefix`, `version`, `token`
+- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default `*`), `base-path-mode` (`base-tag` | `rewrite` | `none`, default `base-tag`), `base-path-prefix`, `version`, `widget-icon`, `widget-label`, `widget-position`, `widget-color`, `token`
+- **Widget customization** is opt-in: `widget-icon` accepts a full `<svg>` element, `widget-label` is text with optional `{version}` token, `widget-position` is `"<edge> <vertical%>"` (e.g. `"left 50%"`), `widget-color` is a hex code (default bright orange `#f97316`). Defaults are sane — only set these if the user has a brand color, custom icon, or specific layout requirement.
 - **Outputs:** `version`, `url`
 - **Runtime:** `node24` — the consumer workflow does not need to set up Node; the Action brings its own
 - **Prerequisite:** `actions/checkout@v4` with `fetch-depth: 0` (git metadata extraction needs full history)

@@ -13,6 +13,10 @@ const baseConfig = (overrides: Partial<DeployConfig> = {}): DeployConfig => ({
   repo: 'owner/my-repo',
   ref: 'refs/heads/main',
   version: '',
+  widgetIcon: '',
+  widgetLabel: '',
+  widgetPosition: '',
+  widgetColor: '',
   ...overrides,
 });
 

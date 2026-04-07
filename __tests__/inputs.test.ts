@@ -108,7 +108,36 @@ describe('parseInputs', () => {
       repo: 'owner/repo',
       ref: 'refs/heads/main',
       version: '',
+      widgetIcon: '',
+      widgetLabel: '',
+      widgetPosition: '',
+      widgetColor: '',
     });
+  });
+
+  it('accepts custom widget customization inputs', () => {
+    mockInputs({
+      ...VALID,
+      'widget-icon': '<svg><circle/></svg>',
+      'widget-label': 'Docs {version}',
+      'widget-position': 'left 50%',
+      'widget-color': '#10b981',
+    });
+    const cfg = parseInputs();
+    expect(cfg.widgetIcon).toBe('<svg><circle/></svg>');
+    expect(cfg.widgetLabel).toBe('Docs {version}');
+    expect(cfg.widgetPosition).toBe('left 50%');
+    expect(cfg.widgetColor).toBe('#10b981');
+  });
+
+  it('rejects invalid widget-position format', () => {
+    mockInputs({ ...VALID, 'widget-position': 'down 20px' });
+    expect(() => parseInputs()).toThrow(/widget-position/);
+  });
+
+  it('rejects invalid widget-color format', () => {
+    mockInputs({ ...VALID, 'widget-color': 'orange' });
+    expect(() => parseInputs()).toThrow(/widget-color/);
   });
 
   it('accepts base-path-mode: none', () => {

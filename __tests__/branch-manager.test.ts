@@ -33,6 +33,10 @@ const baseConfig: DeployConfig = {
   repo: 'owner/repo',
   ref: 'refs/tags/v1.0.0',
   version: '',
+  widgetIcon: '',
+  widgetLabel: '',
+  widgetPosition: '',
+  widgetColor: '',
 };
 
 const ctx: DeploymentContext = {
@@ -279,10 +283,11 @@ describe('widget injection in deploy pipeline', () => {
     await writeFile(full, content);
   }
 
+  const noCustomization = { icon: '', label: '', position: '', color: '' };
   async function runPipelineStages(): Promise<number> {
     await writeIndexHtml(workdir, manifest, repoMeta);
     await placeContent(workdir, sourceDir, wctx, 'base-tag');
-    return injectWidgetForVersion(workdir, versionSlot, repoMeta);
+    return injectWidgetForVersion(workdir, versionSlot, repoMeta, noCustomization);
   }
 
   it('Test 1: full pipeline injects widget into every deployed html and leaves non-html bytes intact', async () => {
@@ -337,7 +342,7 @@ describe('widget injection in deploy pipeline', () => {
     await writeSource('nested/page.html', '<!doctype html><html><head></head><body>2</body></html>');
 
     await runPipelineStages();
-    const second = await injectWidgetForVersion(workdir, versionSlot, repoMeta);
+    const second = await injectWidgetForVersion(workdir, versionSlot, repoMeta, noCustomization);
     expect(second).toBe(0);
 
     const a = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');

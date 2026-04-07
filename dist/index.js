@@ -36568,6 +36568,56 @@ function renderIndexHtml(manifest, repoMeta) {
         `</html>\n`);
 }
 
+// [LAW:one-source-of-truth] Widget customization defaults and validation live in one
+//   place. Both adapters (Action / CLI) call into here so the validation rules and
+//   default values are not duplicated.
+// [LAW:single-enforcer] Position-string parsing is the sole place that knows the
+//   "<edge> <vertical%>" syntax. Downstream consumers (widget-injector) only see the
+//   parsed { edge, vertical } shape.
+/** Built-in default layers icon (Lucide). Used when widgetIcon is empty. */
+const DEFAULT_WIDGET_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>';
+const DEFAULT_WIDGET_LABEL = '{version}';
+const DEFAULT_WIDGET_POSITION = 'right 80%';
+const DEFAULT_WIDGET_COLOR = '#f97316';
+/**
+ * Parse a "<edge> <vertical%>" string into structured form. Throws on invalid input
+ * with a clear message naming the offending value.
+ *
+ * Empty input is interpreted as the default ("right 80%").
+ */
+function parseWidgetPosition(raw) {
+    const value = (raw || '').trim() || DEFAULT_WIDGET_POSITION;
+    const parts = value.split(/\s+/);
+    if (parts.length !== 2) {
+        throw new Error(`Invalid widget-position "${raw}": expected "<edge> <vertical%>" (e.g. "right 80%")`);
+    }
+    const [edgeRaw, verticalRaw] = parts;
+    if (edgeRaw !== 'right' && edgeRaw !== 'left') {
+        throw new Error(`Invalid widget-position edge "${edgeRaw}": must be "right" or "left"`);
+    }
+    if (!/^\d{1,3}%$/.test(verticalRaw)) {
+        throw new Error(`Invalid widget-position vertical "${verticalRaw}": must be a percentage like "80%"`);
+    }
+    const pct = parseInt(verticalRaw, 10);
+    if (pct < 0 || pct > 100) {
+        throw new Error(`Invalid widget-position vertical "${verticalRaw}": must be between 0% and 100%`);
+    }
+    return { edge: edgeRaw, vertical: verticalRaw };
+}
+/**
+ * Validate a hex color string. Accepts #rgb, #rrggbb, or #rrggbbaa. Empty string
+ * is allowed (caller substitutes the default). Throws on anything else.
+ */
+function validateWidgetColor(raw) {
+    const value = (raw || '').trim();
+    if (value === '')
+        return value;
+    if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value)) {
+        throw new Error(`Invalid widget-color "${raw}": must be a hex color like "#f97316" or "#fff"`);
+    }
+    return value;
+}
+
 // [LAW:one-source-of-truth] WIDGET_MARKER is the sole identifier for "this file already has the widget."
 //   The marker is part of the script template, so generation and detection share one constant.
 // [LAW:single-enforcer] This module is the only place that knows the widget script template,
@@ -36592,14 +36642,17 @@ const SHADOW_CSS = `
   --widget-accent: #0969da;
   --widget-accent-hover: #0550ae;
   --widget-current-bg: #ddf4ff;
-  /* Handle colors — intentionally bright and theme-independent so the tab is obvious on any host page. */
+  /* Handle colors — intentionally bright and theme-independent so the tab is obvious on any host page.
+     --handle-bg is overridden at runtime by the user's --widget-color when set. The hover state
+     uses CSS filter rather than a separate color variable, so it works for any base color. */
   --handle-bg: #f97316;
-  --handle-bg-hover: #ea580c;
   --handle-fg: #ffffff;
   /* Drawer geometry (single source of truth for the slide math). */
   --panel-width: 240px;
   --handle-width: 44px;
   --peek: 10px;
+  /* Position and edge are runtime-configurable. The drawer's center sits on this y-line. */
+  --position-y: 80%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
@@ -36619,41 +36672,47 @@ const SHADOW_CSS = `
 }
 .drawer {
   position: fixed;
-  /* Anchored to the lower-right (~4/5 down the viewport) where there is typically no
-     critical host-page content. Using bottom: rather than top: 50% so the handle
-     position is stable across viewport heights. */
-  bottom: 18%;
-  right: 0;
+  /* The drawer's vertical center sits on --position-y (configurable; default 80%). */
+  top: var(--position-y);
   display: flex;
   flex-direction: row;
-  /* align-items: flex-end lets the handle shrink-wrap its content and aligns both the
-     handle and panel to the bottom of the drawer — so the handle's visual position
-     is the same whether the panel is open or closed. */
-  align-items: flex-end;
+  align-items: center;
   z-index: 2147483647;
-  /* [LAW:dataflow-not-control-flow] The drawer is ALWAYS in the DOM, ALWAYS transitions.
-     State (closed / peek / open) is encoded in transform values only. */
-  transform: translateX(var(--panel-width));
   transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
 }
-.drawer:hover:not(.open) {
-  transform: translateX(calc(var(--panel-width) - var(--peek)));
-}
-.drawer.open {
-  transform: translateX(0);
-}
 @media (prefers-reduced-motion: reduce) {
   .drawer { transition: none; }
+}
+/* [LAW:dataflow-not-control-flow] Edge variant is data: a class on the drawer picks
+   the right anchor + transform direction. No JS state-toggling for layout — only the
+   class assignment at construction time, then CSS does the rest. */
+.drawer.edge-right {
+  right: 0;
+  transform: translate(var(--panel-width), -50%);
+}
+.drawer.edge-right:hover:not(.open) {
+  transform: translate(calc(var(--panel-width) - var(--peek)), -50%);
+}
+.drawer.edge-right.open {
+  transform: translate(0, -50%);
+}
+.drawer.edge-left {
+  left: 0;
+  flex-direction: row-reverse;
+  transform: translate(calc(-1 * var(--panel-width)), -50%);
+}
+.drawer.edge-left:hover:not(.open) {
+  transform: translate(calc(-1 * (var(--panel-width) - var(--peek))), -50%);
+}
+.drawer.edge-left.open {
+  transform: translate(0, -50%);
 }
 .handle {
   width: var(--handle-width);
   background: var(--handle-bg);
   color: var(--handle-fg);
   border: none;
-  border-top-left-radius: 14px;
-  border-bottom-left-radius: 14px;
-  box-shadow: -4px 0 16px rgba(0,0,0,0.22), inset 1px 0 0 rgba(255,255,255,0.15);
   cursor: pointer;
   /* Padding is content-driven; the icon and label have their own transitions and the
      handle shrink-wraps to match (no min-height). */
@@ -36667,12 +36726,27 @@ const SHADOW_CSS = `
   font-weight: 600;
   letter-spacing: 0.01em;
   flex: 0 0 auto;
-  transition: padding 180ms ease-out;
+  transition: padding 180ms ease-out, filter 180ms ease-out;
 }
-.handle:hover { background: var(--handle-bg-hover); }
+/* [LAW:single-enforcer] Hover darkening uses CSS filter rather than a separate
+   --handle-bg-hover variable so it works for any user-provided color without forcing
+   the user to specify two shades. */
+.handle:hover { filter: brightness(0.92); }
 .handle:focus-visible {
   outline: 2px solid #ffffff;
   outline-offset: -4px;
+}
+/* Right-edge handle: rounded LEFT side (the side facing the viewport). */
+.drawer.edge-right .handle {
+  border-top-left-radius: 14px;
+  border-bottom-left-radius: 14px;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.22), inset 1px 0 0 rgba(255,255,255,0.15);
+}
+/* Left-edge handle: rounded RIGHT side (the side facing the viewport). */
+.drawer.edge-left .handle {
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
+  box-shadow: 4px 0 16px rgba(0,0,0,0.22), inset -1px 0 0 rgba(255,255,255,0.15);
 }
 /* [LAW:dataflow-not-control-flow] Closed state shows a small icon only. Hover or open
    state expands the icon and reveals the label. The CSS always applies, the difference
@@ -36716,10 +36790,16 @@ const SHADOW_CSS = `
   background: var(--widget-bg);
   color: var(--widget-fg);
   border: 1px solid var(--widget-border);
-  border-right: none;
   padding: 12px;
-  box-shadow: -8px 0 24px rgba(0,0,0,0.18);
   flex: 0 0 auto;
+}
+.drawer.edge-right .panel {
+  border-right: none;
+  box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+}
+.drawer.edge-left .panel {
+  border-left: none;
+  box-shadow: 8px 0 24px rgba(0,0,0,0.18);
 }
 .panel h2 { font-size: 13px; margin: 0 0 8px 0; font-weight: 600; }
 .index-link {
@@ -36764,11 +36844,7 @@ const SHADOW_HTML = `
 <div class="root">
   <div class="drawer" role="region" aria-label="Version switcher">
     <button class="handle" type="button" aria-expanded="false" aria-controls="gh-pm-nav-panel" aria-label="Switch version">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>
-        <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/>
-        <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>
-      </svg>
+      <span class="icon-slot"></span>
       <span class="ver"></span>
     </button>
     <div class="panel" id="gh-pm-nav-panel" role="dialog" aria-label="Versions">
@@ -36793,9 +36869,21 @@ function getWidgetScriptTag(opts) {
     // replace `</` with `<\/` so an attacker-controlled value containing
     // `</script>` cannot break out of the script element (T-04-01).
     const safe = (v) => JSON.stringify(v).replace(/<\//g, '<\\/');
+    // [LAW:dataflow-not-control-flow] Defaults are resolved here, BEFORE the script
+    // template is built. The runtime script never sees empty strings — it always sees
+    // a complete configuration. Variability lives in the *value* picked here, not in
+    // runtime branches inside the inlined script.
+    const iconResolved = opts.icon || DEFAULT_WIDGET_ICON;
+    const labelResolved = opts.label || DEFAULT_WIDGET_LABEL;
+    const positionResolved = opts.position || DEFAULT_WIDGET_POSITION;
+    const colorResolved = opts.color || DEFAULT_WIDGET_COLOR;
     const M = safe(opts.manifestUrl);
     const I = safe(opts.indexUrl);
     const C = safe(opts.currentVersion);
+    const ICON = safe(iconResolved);
+    const LABEL = safe(labelResolved);
+    const POSITION = safe(positionResolved);
+    const COLOR = safe(colorResolved);
     const CSS = safe(SHADOW_CSS);
     const HTML = safe(SHADOW_HTML);
     return `<script>${WIDGET_MARKER}
@@ -36803,6 +36891,10 @@ function getWidgetScriptTag(opts) {
   var MANIFEST_URL = ${M};
   var INDEX_URL = ${I};
   var CURRENT = ${C};
+  var ICON_SVG = ${ICON};
+  var LABEL_TEMPLATE = ${LABEL};
+  var POSITION = ${POSITION};
+  var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
   if (customElements.get('gh-pm-nav')) return;
@@ -36825,11 +36917,26 @@ function getWidgetScriptTag(opts) {
         this._rows = root.querySelector('.rows');
         this._indexLink = root.querySelector('.index-link');
         this._indexLink.setAttribute('href', INDEX_URL);
-        // Display current version name on the handle tab (self-describing).
-        // textContent = safe DOM assignment, no HTML interpretation.
+        // Inject custom icon SVG into the icon-slot. innerHTML in Shadow DOM does NOT
+        // execute scripts, so even malformed SVG is safe to render.
+        var iconSlot = root.querySelector('.handle .icon-slot');
+        if (iconSlot) { iconSlot.innerHTML = ICON_SVG; }
+        // Substitute {version} in the label template, then assign via textContent
+        // (no HTML interpretation).
         var verSpan = root.querySelector('.handle .ver');
-        if (verSpan) { verSpan.textContent = CURRENT; }
+        var labelText = LABEL_TEMPLATE.split('{version}').join(CURRENT);
+        if (verSpan) { verSpan.textContent = labelText; }
         this._handle.setAttribute('aria-label', 'Switch version (current: ' + CURRENT + ')');
+        // Apply position: parse "<edge> <vertical%>" and set drawer class + CSS var.
+        var posParts = POSITION.trim().split(/\\s+/);
+        var edge = (posParts[0] === 'left') ? 'left' : 'right';
+        var verticalY = posParts[1] || '80%';
+        this._drawer.classList.add('edge-' + edge);
+        var rootEl = root.querySelector('.root');
+        if (rootEl) {
+          rootEl.style.setProperty('--position-y', verticalY);
+          if (COLOR) { rootEl.style.setProperty('--handle-bg', COLOR); }
+        }
         this._onDocClick = this._onDocClick.bind(this);
         this._onKey = this._onKey.bind(this);
         this._handle.addEventListener('click', this._toggle.bind(this));
@@ -37076,18 +37183,16 @@ async function writeIndexHtml(workdir, manifest, repoMeta) {
     const html = renderIndexHtml(manifest, repoMeta);
     await promises.writeFile(path__namespace$1.join(workdir, 'index.html'), html, 'utf8');
 }
-// [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
-// The widget script is generated by the pure helper in widget-injector.ts; this
-// function is the sole I/O enforcer that lands the script tag in deployed HTML files.
-// [LAW:dataflow-not-control-flow] Runs unconditionally on every deploy. Empty html
-// list returns 0 from the underlying walker -- no guarded skip. The relative URLs
-// are derived purely from versionSlot ([LAW:one-source-of-truth]).
-async function injectWidgetForVersion(workdir, versionSlot, _repoMeta) {
+async function injectWidgetForVersion(workdir, versionSlot, _repoMeta, customization) {
     const versionDir = path__namespace$1.join(workdir, versionSlot);
     return injectWidgetIntoHtmlFiles(versionDir, {
         manifestUrl: '../versions.json',
         indexUrl: '../',
         currentVersion: versionSlot,
+        icon: customization.icon,
+        label: customization.label,
+        position: customization.position,
+        color: customization.color,
     });
 }
 
@@ -37387,7 +37492,12 @@ async function deploy(config, sourceRepoDir) {
         // [LAW:single-enforcer] Goes through branch-manager.injectWidgetForVersion -- the only writer to
         // the gh-pages worktree.
         // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
-        const injectedCount = await injectWidgetForVersion(workdir, context.versionSlot, { owner: repoOwner, repo: repoName });
+        const injectedCount = await injectWidgetForVersion(workdir, context.versionSlot, { owner: repoOwner, repo: repoName }, {
+            icon: config.widgetIcon,
+            label: config.widgetLabel,
+            position: config.widgetPosition,
+            color: config.widgetColor,
+        });
         info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
         // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
         await commitAndPush(workdir, context, config.targetBranch);
@@ -37508,6 +37618,13 @@ function parseInputs() {
     if (basePathMode !== 'base-tag' && basePathMode !== 'rewrite' && basePathMode !== 'none') {
         throw new Error(`Invalid base-path-mode: "${basePathMode}". Must be "base-tag", "rewrite", or "none".`);
     }
+    // Widget customization — validate up front so the action fails fast on bad input
+    // instead of producing a broken widget at deploy time.
+    const widgetPosition = getInput('widget-position');
+    if (widgetPosition.length > 0) {
+        parseWidgetPosition(widgetPosition); // throws on invalid; result is reparsed by widget-injector
+    }
+    const widgetColor = validateWidgetColor(getInput('widget-color'));
     return {
         sourceDir: getInput('source-dir', { required: true }),
         targetBranch: getInput('target-branch'),
@@ -37518,6 +37635,10 @@ function parseInputs() {
         repo: process.env.GITHUB_REPOSITORY ?? '',
         ref: process.env.GITHUB_REF ?? '',
         version: getInput('version'),
+        widgetIcon: getInput('widget-icon'),
+        widgetLabel: getInput('widget-label'),
+        widgetPosition,
+        widgetColor,
     };
 }
 async function run() {

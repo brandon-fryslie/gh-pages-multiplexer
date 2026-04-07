@@ -26,6 +26,22 @@ inputs:
     description: 'Explicit version slot name (e.g., "v1.2.3"). When set, overrides the ref-derived slot and bypasses ref-patterns filtering. Required if you want to deploy with a build-time base URL that matches a predetermined version path.'
     required: false
     default: ''
+  widget-icon:
+    description: 'Custom SVG markup for the navigation widget icon. Must be a complete <svg>...</svg> element. Default: built-in layers icon.'
+    required: false
+    default: ''
+  widget-label:
+    description: 'Label text shown on the widget handle when hovered. Supports the {version} token, which is replaced with the deployed version slot. Default: "{version}".'
+    required: false
+    default: ''
+  widget-position:
+    description: 'Where the widget tab appears, in the form "<edge> <vertical>". Edge is "right" or "left". Vertical is a percentage from the top (e.g. "80%"). Default: "right 80%".'
+    required: false
+    default: ''
+  widget-color:
+    description: 'Hex color (e.g. "#f97316") for the widget handle background. Default: bright orange "#f97316".'
+    required: false
+    default: ''
   token:
     description: 'GitHub token for pushing to the target branch'
     required: false

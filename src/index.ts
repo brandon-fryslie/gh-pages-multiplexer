@@ -12,6 +12,7 @@ import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
 import { upsertPreviewComment } from './pr-commenter.js';
+import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
 // [LAW:verifiable-goals] parseInputs is exported so __tests__/inputs.test.ts
 // can validate GHUB-02 contract directly.
@@ -29,6 +30,14 @@ export function parseInputs(): DeployConfig {
     );
   }
 
+  // Widget customization — validate up front so the action fails fast on bad input
+  // instead of producing a broken widget at deploy time.
+  const widgetPosition = core.getInput('widget-position');
+  if (widgetPosition.length > 0) {
+    parseWidgetPosition(widgetPosition); // throws on invalid; result is reparsed by widget-injector
+  }
+  const widgetColor = validateWidgetColor(core.getInput('widget-color'));
+
   return {
     sourceDir: core.getInput('source-dir', { required: true }),
     targetBranch: core.getInput('target-branch'),
@@ -39,6 +48,10 @@ export function parseInputs(): DeployConfig {
     repo: process.env.GITHUB_REPOSITORY ?? '',
     ref: process.env.GITHUB_REF ?? '',
     version: core.getInput('version'),
+    widgetIcon: core.getInput('widget-icon'),
+    widgetLabel: core.getInput('widget-label'),
+    widgetPosition,
+    widgetColor,
   };
 }
 

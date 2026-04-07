@@ -134,15 +134,27 @@ export async function writeIndexHtml(
 // [LAW:dataflow-not-control-flow] Runs unconditionally on every deploy. Empty html
 // list returns 0 from the underlying walker -- no guarded skip. The relative URLs
 // are derived purely from versionSlot ([LAW:one-source-of-truth]).
+export interface WidgetCustomization {
+  icon: string;     // empty string means use default
+  label: string;    // empty string means use default
+  position: string; // empty string means use default
+  color: string;    // empty string means use default
+}
+
 export async function injectWidgetForVersion(
   workdir: string,
   versionSlot: string,
   _repoMeta: RepoMeta,
+  customization: WidgetCustomization,
 ): Promise<number> {
   const versionDir = path.join(workdir, versionSlot);
   return injectWidgetIntoHtmlFiles(versionDir, {
     manifestUrl: '../versions.json',
     indexUrl: '../',
     currentVersion: versionSlot,
+    icon: customization.icon,
+    label: customization.label,
+    position: customization.position,
+    color: customization.color,
   });
 }

@@ -9,6 +9,7 @@
 import { parseArgs } from 'node:util';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
+import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
 const VERSION = '0.0.0'; // Synced with package.json version; bump together.
 
@@ -26,6 +27,10 @@ Options:
   --repo=<owner/name>          Repository slug (default: $GITHUB_REPOSITORY)
   --ref=<refs/...>             Git ref being deployed (default: $GITHUB_REF)
   --deploy-version=<name>      Explicit version slot (overrides ref-derived name)
+  --widget-icon=<svg>          Custom SVG markup for widget icon (default: layers)
+  --widget-label=<text>        Widget label, supports {version} token (default: "{version}")
+  --widget-position=<spec>     Widget location: "<edge> <vertical%>" (default: "right 80%")
+  --widget-color=<hex>         Widget handle background hex color (default: "#f97316")
   --debug                      Print full stack traces on error
   --help                       Show this help and exit
   --version                    Print version and exit
@@ -76,6 +81,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         'repo': { type: 'string' },
         'ref': { type: 'string' },
         'deploy-version': { type: 'string' },
+        'widget-icon': { type: 'string' },
+        'widget-label': { type: 'string' },
+        'widget-position': { type: 'string' },
+        'widget-color': { type: 'string' },
         'debug': { type: 'boolean' },
       },
     });
@@ -118,6 +127,24 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     ? refPatternsRaw.split(',').map((p) => p.trim()).filter((p) => p.length > 0)
     : [];
 
+  // Widget customization — validate up front so the CLI fails fast.
+  const widgetPosition = (parsed.values['widget-position'] ?? '') as string;
+  if (widgetPosition.length > 0) {
+    try {
+      parseWidgetPosition(widgetPosition);
+    } catch (err) {
+      process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
+  }
+  let widgetColor: string;
+  try {
+    widgetColor = validateWidgetColor((parsed.values['widget-color'] ?? '') as string);
+  } catch (err) {
+    process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+    return 2;
+  }
+
   const config: DeployConfig = {
     sourceDir: parsed.values['source-dir'] as string,
     targetBranch: (parsed.values['target-branch'] ?? 'gh-pages') as string,
@@ -128,6 +155,10 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     repo: (parsed.values['repo'] ?? env.GITHUB_REPOSITORY ?? '') as string,
     ref: (parsed.values['ref'] ?? env.GITHUB_REF ?? '') as string,
     version: (parsed.values['deploy-version'] ?? '') as string,
+    widgetIcon: (parsed.values['widget-icon'] ?? '') as string,
+    widgetLabel: (parsed.values['widget-label'] ?? '') as string,
+    widgetPosition,
+    widgetColor,
   };
 
   try {
