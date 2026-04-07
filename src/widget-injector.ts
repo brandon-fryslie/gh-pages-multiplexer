@@ -38,6 +38,14 @@ const SHADOW_CSS = `
   --widget-accent: #0969da;
   --widget-accent-hover: #0550ae;
   --widget-current-bg: #ddf4ff;
+  /* Handle colors — intentionally bright and theme-independent so the tab is obvious on any host page. */
+  --handle-bg: #f97316;
+  --handle-bg-hover: #ea580c;
+  --handle-fg: #ffffff;
+  /* Drawer geometry (single source of truth for the slide math). */
+  --panel-width: 240px;
+  --handle-width: 52px;
+  --peek: 10px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
@@ -55,46 +63,90 @@ const SHADOW_CSS = `
     --widget-current-bg: #0c2d6b;
   }
 }
-.btn {
+.drawer {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--widget-bg);
-  color: var(--widget-fg);
-  border: 1px solid var(--widget-border);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15), 0 0 0 1px rgba(0,0,0,0.05);
-  cursor: pointer;
+  /* Anchored to the lower-right (~4/5 down the viewport) where there is typically no
+     critical host-page content. Using bottom: rather than top: 50% so the handle
+     position is stable across viewport heights. */
+  bottom: 18%;
+  right: 0;
   display: flex;
+  flex-direction: row;
+  /* align-items: flex-end lets the handle shrink-wrap its content and aligns both the
+     handle and panel to the bottom of the drawer — so the handle's visual position
+     is the same whether the panel is open or closed. */
+  align-items: flex-end;
+  z-index: 2147483647;
+  /* [LAW:dataflow-not-control-flow] The drawer is ALWAYS in the DOM, ALWAYS transitions.
+     State (closed / peek / open) is encoded in transform values only. */
+  transform: translateX(var(--panel-width));
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.drawer:hover:not(.open) {
+  transform: translateX(calc(var(--panel-width) - var(--peek)));
+}
+.drawer.open {
+  transform: translateX(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .drawer { transition: none; }
+}
+.handle {
+  width: var(--handle-width);
+  background: var(--handle-bg);
+  color: var(--handle-fg);
+  border: none;
+  border-top-left-radius: 14px;
+  border-bottom-left-radius: 14px;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.22), inset 1px 0 0 rgba(255,255,255,0.15);
+  cursor: pointer;
+  /* Min height is driven by content: icon (22) + gap (6) + text (~14) + padding (16) ≈ 58px.
+     No explicit min-height — the handle shrink-wraps its children. */
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  z-index: 2147483647;
+  gap: 6px;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  flex: 0 0 auto;
 }
-.btn:focus-visible { outline: 2px solid var(--widget-accent); outline-offset: 2px; }
-.btn svg { width: 18px; height: 18px; }
+.handle:hover { background: var(--handle-bg-hover); }
+.handle:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: -4px;
+}
+.handle svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: block;
+}
+.handle .ver {
+  font-size: 11px;
+  line-height: 1.15;
+  max-width: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
 .panel {
-  position: fixed;
-  bottom: 64px;
-  right: 16px;
-  width: 240px;
+  width: var(--panel-width);
   max-height: 60vh;
   overflow-y: auto;
   background: var(--widget-bg);
   color: var(--widget-fg);
   border: 1px solid var(--widget-border);
-  border-radius: 12px;
+  border-right: none;
   padding: 12px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  pointer-events: none;
-  z-index: 2147483647;
+  box-shadow: -8px 0 24px rgba(0,0,0,0.18);
+  flex: 0 0 auto;
 }
-.panel.open { opacity: 1; transform: translateY(0); pointer-events: auto; }
 .panel h2 { font-size: 13px; margin: 0 0 8px 0; font-weight: 600; }
 .index-link {
   display: block;
@@ -131,23 +183,26 @@ const SHADOW_CSS = `
 }
 .state { padding: 8px 12px; color: var(--widget-fg-muted); }
 @media (max-width: 600px) {
-  .panel { width: calc(100vw - 32px); right: 16px; }
+  .root { --panel-width: calc(100vw - 72px); }
 }
 `;
 
 const SHADOW_HTML = `
 <div class="root">
-  <button class="btn" type="button" aria-label="Switch version" aria-expanded="false" aria-controls="gh-pm-nav-panel">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-      <line x1="4" y1="7" x2="20" y2="7"/>
-      <line x1="4" y1="12" x2="20" y2="12"/>
-      <line x1="4" y1="17" x2="20" y2="17"/>
-    </svg>
-  </button>
-  <div class="panel" id="gh-pm-nav-panel" role="dialog" aria-label="Versions">
-    <h2>Versions</h2>
-    <a class="index-link" href="">\u2190 Index</a>
-    <div class="rows"><div class="state">Loading versions\u2026</div></div>
+  <div class="drawer" role="region" aria-label="Version switcher">
+    <button class="handle" type="button" aria-expanded="false" aria-controls="gh-pm-nav-panel" aria-label="Switch version">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>
+        <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/>
+        <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>
+      </svg>
+      <span class="ver"></span>
+    </button>
+    <div class="panel" id="gh-pm-nav-panel" role="dialog" aria-label="Versions">
+      <h2>Versions</h2>
+      <a class="index-link" href="">\u2190 Index</a>
+      <div class="rows"><div class="state">Loading versions\u2026</div></div>
+    </div>
   </div>
 </div>
 `;
@@ -193,22 +248,28 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
         this._loaded = false;
         this._versions = null;
         this._error = null;
-        this._btn = root.querySelector('.btn');
+        this._drawer = root.querySelector('.drawer');
+        this._handle = root.querySelector('.handle');
         this._panel = root.querySelector('.panel');
         this._rows = root.querySelector('.rows');
         this._indexLink = root.querySelector('.index-link');
         this._indexLink.setAttribute('href', INDEX_URL);
+        // Display current version name on the handle tab (self-describing).
+        // textContent = safe DOM assignment, no HTML interpretation.
+        var verSpan = root.querySelector('.handle .ver');
+        if (verSpan) { verSpan.textContent = CURRENT; }
+        this._handle.setAttribute('aria-label', 'Switch version (current: ' + CURRENT + ')');
         this._onDocClick = this._onDocClick.bind(this);
         this._onKey = this._onKey.bind(this);
-        this._btn.addEventListener('click', this._toggle.bind(this));
+        this._handle.addEventListener('click', this._toggle.bind(this));
       }
       _toggle(){
         this._open ? this._close() : this._open_();
       }
       _open_(){
         this._open = true;
-        this._panel.classList.add('open');
-        this._btn.setAttribute('aria-expanded', 'true');
+        this._drawer.classList.add('open');
+        this._handle.setAttribute('aria-expanded', 'true');
         document.addEventListener('click', this._onDocClick, true);
         document.addEventListener('keydown', this._onKey, true);
         if (!this._loaded) { this._fetch(); }
@@ -217,11 +278,11 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
       }
       _close(){
         this._open = false;
-        this._panel.classList.remove('open');
-        this._btn.setAttribute('aria-expanded', 'false');
+        this._drawer.classList.remove('open');
+        this._handle.setAttribute('aria-expanded', 'false');
         document.removeEventListener('click', this._onDocClick, true);
         document.removeEventListener('keydown', this._onKey, true);
-        this._btn.focus();
+        this._handle.focus();
       }
       _onDocClick(e){
         var path = e.composedPath ? e.composedPath() : [];
