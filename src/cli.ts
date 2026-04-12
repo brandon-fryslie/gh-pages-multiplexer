@@ -159,6 +159,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     widgetLabel: (parsed.values['widget-label'] ?? '') as string,
     widgetPosition,
     widgetColor,
+    prBaseRef: '',  // CLI does not distinguish PR vs non-PR deploys
+    cleanupVersions: [],  // CLI has no GitHub API access; cleanup is a CI concern
   };
 
   try {

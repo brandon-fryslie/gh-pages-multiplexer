@@ -84,16 +84,26 @@ function parseLog(stdout: string): CommitInfo[] {
  * @param repoDir    Source repo directory (already checked out).
  * @param currentSha Deployment head SHA.
  * @param previousSha Prior manifest entry SHA, or null for first deploy.
+ * @param prBaseRef  PR base branch name (e.g., "main"). When non-empty, the range
+ *                   is origin/<prBaseRef>..currentSha — capturing only the PR's own
+ *                   commits. When empty, falls back to previousSha..currentSha.
  * @returns Up to MAX_COMMITS CommitInfo records, newest first.
  */
 export async function extractCommits(
   repoDir: string,
   currentSha: string,
   previousSha: string | null,
+  prBaseRef = '',
 ): Promise<CommitInfo[]> {
+  // [LAW:dataflow-not-control-flow] The range is data: prBaseRef selects PR-scoped
+  //   range, previousSha selects incremental range, null selects full-history range.
+  //   Same git-log call, different range string.
   const firstDeployRange = currentSha;
-  const incrementalRange =
-    previousSha === null ? firstDeployRange : `${previousSha}..${currentSha}`;
+  const incrementalRange = prBaseRef.length > 0
+    ? `origin/${prBaseRef}..${currentSha}`
+    : previousSha === null
+      ? firstDeployRange
+      : `${previousSha}..${currentSha}`;
 
   // A .git/shallow file means history is truncated -- an unreachable previousSha
   // may be due to that truncation rather than a force-push. In that case we must

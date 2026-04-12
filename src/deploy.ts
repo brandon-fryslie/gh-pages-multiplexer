@@ -11,8 +11,8 @@
 import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, ManifestEntry } from './types.js';
 import { resolveContext } from './ref-resolver.js';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion } from './branch-manager.js';
-import { readManifest, updateManifest, writeManifest } from './manifest-manager.js';
+import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion, removeVersionDirectories } from './branch-manager.js';
+import { readManifest, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
 
@@ -34,7 +34,7 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
     const previousSha =
       currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
     // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
-    const commits = await extractCommits(sourceRepoDir, context.sha, previousSha);
+    const commits = await extractCommits(sourceRepoDir, context.sha, previousSha, config.prBaseRef);
     core.info(`Captured ${commits.length} commit(s) for ${context.versionSlot}`);
 
     const entry: ManifestEntry = {
@@ -44,14 +44,23 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
       timestamp: context.timestamp,
       commits,
     };
-    const updatedManifest = updateManifest(currentManifest, entry);
-    await writeManifest(workdir, updatedManifest);
+    // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
+    //   read → add new entry → remove stale entries → write. Both always run;
+    //   empty cleanupVersions = identity transform in removeVersions.
+    const withNewEntry = updateManifest(currentManifest, entry);
+    const cleanedManifest = removeVersions(withNewEntry, config.cleanupVersions);
+    await writeManifest(workdir, cleanedManifest);
+
+    // Remove stale version directories from the worktree.
+    // [LAW:single-enforcer] Worktree I/O goes through branch-manager.
+    const removedCount = await removeVersionDirectories(workdir, config.cleanupVersions);
+    core.info(`Cleanup: removed ${removedCount} stale version(s)`);
 
     // [LAW:dataflow-not-control-flow] INDX-06: index.html is regenerated on every
     // deploy from the manifest. Runs unconditionally. Lands in the same commit as
     // versions.json via the shared commitAndPush step (MNFST-04 / INDX-06).
     const [repoOwner, repoName] = config.repo.split('/');
-    await writeIndexHtml(workdir, updatedManifest, { owner: repoOwner, repo: repoName });
+    await writeIndexHtml(workdir, cleanedManifest, { owner: repoOwner, repo: repoName });
 
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
@@ -82,7 +91,7 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
     const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
     const url = `${baseUrl}${context.basePath}`;
 
-    return { version: context.versionSlot, url };
+    return { version: context.versionSlot, url, removedVersions: config.cleanupVersions };
   } finally {
     // Cleanup runs whether deploy succeeded or threw. Failure to clean up is
     // logged as a warning but never masks the original error.

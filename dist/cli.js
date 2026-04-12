@@ -31500,7 +31500,7 @@ function renderVersionCard(entry, repoMeta) {
     const ownerE = escapeHtml(repoMeta.owner);
     const repoE = escapeHtml(repoMeta.repo);
     const commitUrl = `https://github.com/${ownerE}/${repoE}/commit/${escapeHtml(entry.sha)}`;
-    const viewUrl = `./${escapeHtml(entry.version)}/`;
+    const viewUrl = `../${escapeHtml(entry.version)}/`;
     const displayTime = formatUtc(entry.timestamp);
     return (`<article class="version">` +
         `<div class="version-head">` +
@@ -31519,6 +31519,29 @@ function renderVersionCard(entry, repoMeta) {
 }
 function renderEmptyState() {
     return `<article class="empty"><h2>No versions deployed yet</h2><p>Deploy a version to see it here.</p></article>`;
+}
+const PR_VERSION_RE = /^pr-\d+$/;
+/**
+ * Render the root index.html as a redirect to the latest non-PR version.
+ * Falls back to the version listing page when no non-PR version exists.
+ * [LAW:dataflow-not-control-flow] Always produces a valid HTML page; the redirect
+ * target is data derived from the manifest (latest non-PR, or listing fallback).
+ */
+function renderRedirectHtml(manifest) {
+    const latest = manifest.versions.find((v) => !PR_VERSION_RE.test(v.version));
+    const target = latest ? `./${escapeHtml(latest.version)}/` : './_versions/';
+    return (`<!DOCTYPE html>\n` +
+        `<html lang="en">\n` +
+        `<head>\n` +
+        `<meta charset="utf-8">\n` +
+        `<meta http-equiv="refresh" content="0;url=${target}">\n` +
+        `<title>Redirecting\u2026</title>\n` +
+        `</head>\n` +
+        `<body>\n` +
+        `<script>location.replace(${JSON.stringify(target)});</script>\n` +
+        `<p>Redirecting to <a href="${target}">${target}</a>\u2026</p>\n` +
+        `</body>\n` +
+        `</html>\n`);
 }
 function renderIndexHtml(manifest, repoMeta) {
     const count = manifest.versions.length;
@@ -32160,20 +32183,41 @@ async function readCnameFile(workdir) {
         throw err;
     }
 }
+/**
+ * Remove version directories from the worktree. Uses force: true for idempotency
+ * (missing directories are silently ok). Returns count of directories removed.
+ * [LAW:dataflow-not-control-flow] Always runs; empty list = zero removals in data.
+ * [LAW:single-enforcer] Worktree I/O lives exclusively in this module.
+ */
+async function removeVersionDirectories(workdir, versions) {
+    let removed = 0;
+    for (const slot of versions) {
+        const target = path__namespace$1.join(workdir, slot);
+        await promises.rm(target, { recursive: true, force: true });
+        removed++;
+    }
+    return removed;
+}
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
 // The rendered index is produced by the pure renderer in index-renderer.ts; this
 // function is the sole I/O enforcer that lands it on disk.
 // [LAW:dataflow-not-control-flow] Runs unconditionally on every deploy; empty
 // manifest still produces a valid index.html (renderer handles empty-case in data).
 async function writeIndexHtml(workdir, manifest, repoMeta) {
-    const html = renderIndexHtml(manifest, repoMeta);
-    await promises.writeFile(path__namespace$1.join(workdir, 'index.html'), html, 'utf8');
+    // Root index.html redirects to the latest non-PR version.
+    const redirectHtml = renderRedirectHtml(manifest);
+    await promises.writeFile(path__namespace$1.join(workdir, 'index.html'), redirectHtml, 'utf8');
+    // Version listing lives at _versions/index.html — still accessible, just not the root.
+    const versionsDir = path__namespace$1.join(workdir, '_versions');
+    await promises.mkdir(versionsDir, { recursive: true });
+    const listingHtml = renderIndexHtml(manifest, repoMeta);
+    await promises.writeFile(path__namespace$1.join(versionsDir, 'index.html'), listingHtml, 'utf8');
 }
 async function injectWidgetForVersion(workdir, versionSlot, _repoMeta, customization) {
     const versionDir = path__namespace$1.join(workdir, versionSlot);
     return injectWidgetIntoHtmlFiles(versionDir, {
         manifestUrl: '../versions.json',
-        indexUrl: '../',
+        indexUrl: '../_versions/',
         currentVersion: versionSlot,
         icon: customization.icon,
         label: customization.label,
@@ -32221,6 +32265,18 @@ function updateManifest(manifest, entry) {
     return {
         schema: 2,
         versions: [entry, ...filtered],
+    };
+}
+/**
+ * Pure function: return a new manifest with the specified versions removed.
+ * When the removal set is empty, the returned manifest is identical to the input.
+ * [LAW:dataflow-not-control-flow] Always runs; empty set = identity transform in data.
+ */
+function removeVersions(manifest, versions) {
+    const removalSet = new Set(versions);
+    return {
+        schema: 2,
+        versions: manifest.versions.filter((v) => !removalSet.has(v.version)),
     };
 }
 /**
@@ -32395,11 +32451,21 @@ function parseLog(stdout) {
  * @param repoDir    Source repo directory (already checked out).
  * @param currentSha Deployment head SHA.
  * @param previousSha Prior manifest entry SHA, or null for first deploy.
+ * @param prBaseRef  PR base branch name (e.g., "main"). When non-empty, the range
+ *                   is origin/<prBaseRef>..currentSha — capturing only the PR's own
+ *                   commits. When empty, falls back to previousSha..currentSha.
  * @returns Up to MAX_COMMITS CommitInfo records, newest first.
  */
-async function extractCommits(repoDir, currentSha, previousSha) {
+async function extractCommits(repoDir, currentSha, previousSha, prBaseRef = '') {
+    // [LAW:dataflow-not-control-flow] The range is data: prBaseRef selects PR-scoped
+    //   range, previousSha selects incremental range, null selects full-history range.
+    //   Same git-log call, different range string.
     const firstDeployRange = currentSha;
-    const incrementalRange = previousSha === null ? firstDeployRange : `${previousSha}..${currentSha}`;
+    const incrementalRange = prBaseRef.length > 0
+        ? `origin/${prBaseRef}..${currentSha}`
+        : previousSha === null
+            ? firstDeployRange
+            : `${previousSha}..${currentSha}`;
     // A .git/shallow file means history is truncated -- an unreachable previousSha
     // may be due to that truncation rather than a force-push. In that case we must
     // fail loudly per D-11 so the user sets fetch-depth: 0.
@@ -32455,7 +32521,7 @@ async function deploy(config, sourceRepoDir) {
         const currentManifest = await readManifest(workdir);
         const previousSha = currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
         // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
-        const commits = await extractCommits(sourceRepoDir, context.sha, previousSha);
+        const commits = await extractCommits(sourceRepoDir, context.sha, previousSha, config.prBaseRef);
         info(`Captured ${commits.length} commit(s) for ${context.versionSlot}`);
         const entry = {
             version: context.versionSlot,
@@ -32464,13 +32530,21 @@ async function deploy(config, sourceRepoDir) {
             timestamp: context.timestamp,
             commits,
         };
-        const updatedManifest = updateManifest(currentManifest, entry);
-        await writeManifest(workdir, updatedManifest);
+        // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
+        //   read → add new entry → remove stale entries → write. Both always run;
+        //   empty cleanupVersions = identity transform in removeVersions.
+        const withNewEntry = updateManifest(currentManifest, entry);
+        const cleanedManifest = removeVersions(withNewEntry, config.cleanupVersions);
+        await writeManifest(workdir, cleanedManifest);
+        // Remove stale version directories from the worktree.
+        // [LAW:single-enforcer] Worktree I/O goes through branch-manager.
+        const removedCount = await removeVersionDirectories(workdir, config.cleanupVersions);
+        info(`Cleanup: removed ${removedCount} stale version(s)`);
         // [LAW:dataflow-not-control-flow] INDX-06: index.html is regenerated on every
         // deploy from the manifest. Runs unconditionally. Lands in the same commit as
         // versions.json via the shared commitAndPush step (MNFST-04 / INDX-06).
         const [repoOwner, repoName] = config.repo.split('/');
-        await writeIndexHtml(workdir, updatedManifest, { owner: repoOwner, repo: repoName });
+        await writeIndexHtml(workdir, cleanedManifest, { owner: repoOwner, repo: repoName });
         // Stage 4: Place content (copy + base path correction + .nojekyll).
         await placeContent(workdir, config.sourceDir, context, config.basePathMode);
         // Stage 4.5: Inject the navigation widget into every deployed HTML page.
@@ -32491,7 +32565,7 @@ async function deploy(config, sourceRepoDir) {
         const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
         const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
         const url = `${baseUrl}${context.basePath}`;
-        return { version: context.versionSlot, url };
+        return { version: context.versionSlot, url, removedVersions: config.cleanupVersions };
     }
     finally {
         // Cleanup runs whether deploy succeeded or threw. Failure to clean up is
@@ -32644,6 +32718,8 @@ async function main(argv, env) {
         widgetLabel: (parsed.values['widget-label'] ?? ''),
         widgetPosition,
         widgetColor,
+        prBaseRef: '', // CLI does not distinguish PR vs non-PR deploys
+        cleanupVersions: [], // CLI has no GitHub API access; cleanup is a CI concern
     };
     try {
         const result = await deploy(config, process.cwd());

@@ -85,7 +85,7 @@ function renderVersionCard(entry: ManifestEntry, repoMeta: RepoMeta): string {
   const ownerE = escapeHtml(repoMeta.owner);
   const repoE = escapeHtml(repoMeta.repo);
   const commitUrl = `https://github.com/${ownerE}/${repoE}/commit/${escapeHtml(entry.sha)}`;
-  const viewUrl = `./${escapeHtml(entry.version)}/`;
+  const viewUrl = `../${escapeHtml(entry.version)}/`;
   const displayTime = formatUtc(entry.timestamp);
   return (
     `<article class="version">` +
@@ -107,6 +107,33 @@ function renderVersionCard(entry: ManifestEntry, repoMeta: RepoMeta): string {
 
 function renderEmptyState(): string {
   return `<article class="empty"><h2>No versions deployed yet</h2><p>Deploy a version to see it here.</p></article>`;
+}
+
+const PR_VERSION_RE = /^pr-\d+$/;
+
+/**
+ * Render the root index.html as a redirect to the latest non-PR version.
+ * Falls back to the version listing page when no non-PR version exists.
+ * [LAW:dataflow-not-control-flow] Always produces a valid HTML page; the redirect
+ * target is data derived from the manifest (latest non-PR, or listing fallback).
+ */
+export function renderRedirectHtml(manifest: Manifest): string {
+  const latest = manifest.versions.find((v) => !PR_VERSION_RE.test(v.version));
+  const target = latest ? `./${escapeHtml(latest.version)}/` : './_versions/';
+  return (
+    `<!DOCTYPE html>\n` +
+    `<html lang="en">\n` +
+    `<head>\n` +
+    `<meta charset="utf-8">\n` +
+    `<meta http-equiv="refresh" content="0;url=${target}">\n` +
+    `<title>Redirecting\u2026</title>\n` +
+    `</head>\n` +
+    `<body>\n` +
+    `<script>location.replace(${JSON.stringify(target)});</script>\n` +
+    `<p>Redirecting to <a href="${target}">${target}</a>\u2026</p>\n` +
+    `</body>\n` +
+    `</html>\n`
+  );
 }
 
 export function renderIndexHtml(manifest: Manifest, repoMeta: RepoMeta): string {

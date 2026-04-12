@@ -8,9 +8,9 @@ import * as exec from '@actions/exec';
 import * as core from '@actions/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { DeployConfig, DeploymentContext, Manifest } from './types.js';
-import { renderIndexHtml, type RepoMeta } from './index-renderer.js';
+import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
 
 const GIT_USER_NAME = 'github-actions[bot]';
@@ -114,6 +114,22 @@ export async function readCnameFile(workdir: string): Promise<string | null> {
   }
 }
 
+/**
+ * Remove version directories from the worktree. Uses force: true for idempotency
+ * (missing directories are silently ok). Returns count of directories removed.
+ * [LAW:dataflow-not-control-flow] Always runs; empty list = zero removals in data.
+ * [LAW:single-enforcer] Worktree I/O lives exclusively in this module.
+ */
+export async function removeVersionDirectories(workdir: string, versions: string[]): Promise<number> {
+  let removed = 0;
+  for (const slot of versions) {
+    const target = path.join(workdir, slot);
+    await rm(target, { recursive: true, force: true });
+    removed++;
+  }
+  return removed;
+}
+
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
 // The rendered index is produced by the pure renderer in index-renderer.ts; this
 // function is the sole I/O enforcer that lands it on disk.
@@ -124,8 +140,15 @@ export async function writeIndexHtml(
   manifest: Manifest,
   repoMeta: RepoMeta,
 ): Promise<void> {
-  const html = renderIndexHtml(manifest, repoMeta);
-  await writeFile(path.join(workdir, 'index.html'), html, 'utf8');
+  // Root index.html redirects to the latest non-PR version.
+  const redirectHtml = renderRedirectHtml(manifest);
+  await writeFile(path.join(workdir, 'index.html'), redirectHtml, 'utf8');
+
+  // Version listing lives at _versions/index.html — still accessible, just not the root.
+  const versionsDir = path.join(workdir, '_versions');
+  await mkdir(versionsDir, { recursive: true });
+  const listingHtml = renderIndexHtml(manifest, repoMeta);
+  await writeFile(path.join(versionsDir, 'index.html'), listingHtml, 'utf8');
 }
 
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
@@ -150,7 +173,7 @@ export async function injectWidgetForVersion(
   const versionDir = path.join(workdir, versionSlot);
   return injectWidgetIntoHtmlFiles(versionDir, {
     manifestUrl: '../versions.json',
-    indexUrl: '../',
+    indexUrl: '../_versions/',
     currentVersion: versionSlot,
     icon: customization.icon,
     label: customization.label,

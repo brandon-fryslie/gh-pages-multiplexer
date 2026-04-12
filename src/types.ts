@@ -23,6 +23,14 @@ export interface DeployConfig {
   widgetLabel: string;         // text with optional {version} token; empty = "{version}"
   widgetPosition: string;      // "<edge> <vertical%>" e.g. "right 80%"; empty = "right 80%"
   widgetColor: string;         // hex color for handle background; empty = "#f97316"
+  // PR base branch ref (e.g., "main"). When non-empty, commit extraction uses
+  // origin/<prBaseRef>..HEAD to capture only the PR's own commits. When empty,
+  // the extractor uses previousSha..currentSha (delta from last deployment).
+  prBaseRef: string;
+  // Version slots to remove during this deploy (e.g., ["pr-42", "pr-17"]).
+  // Populated by the adapter; empty array means no cleanup. The pipeline always
+  // runs the cleanup stage — variability lives in the data, not in whether it runs.
+  cleanupVersions: string[];
 }
 
 /** Context derived from the git ref */
@@ -65,4 +73,5 @@ export interface Manifest {
 export interface DeployResult {
   version: string;
   url: string;
+  removedVersions: string[];  // version slots removed during cleanup
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readManifest, updateManifest, writeManifest } from '../src/manifest-manager.js';
+import { readManifest, updateManifest, removeVersions, writeManifest } from '../src/manifest-manager.js';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -89,6 +89,41 @@ describe('updateManifest', () => {
     );
     const m = await readManifest(workdir);
     expect(m.schema).toBe(2);
+  });
+});
+
+describe('removeVersions', () => {
+  it('removes specified versions from manifest', () => {
+    const m: Manifest = { schema: 2, versions: [entry('pr-42'), entry('v1'), entry('pr-7')] };
+    const result = removeVersions(m, ['pr-42', 'pr-7']);
+    expect(result.versions).toHaveLength(1);
+    expect(result.versions[0].version).toBe('v1');
+  });
+
+  it('returns manifest unchanged when removal list is empty', () => {
+    const m: Manifest = { schema: 2, versions: [entry('pr-42'), entry('v1')] };
+    const result = removeVersions(m, []);
+    expect(result.versions).toHaveLength(2);
+    expect(result.versions).toEqual(m.versions);
+  });
+
+  it('handles removing non-existent versions gracefully', () => {
+    const m: Manifest = { schema: 2, versions: [entry('v1')] };
+    const result = removeVersions(m, ['pr-99']);
+    expect(result.versions).toHaveLength(1);
+    expect(result.versions[0].version).toBe('v1');
+  });
+
+  it('does not mutate input manifest', () => {
+    const m: Manifest = { schema: 2, versions: [entry('pr-42'), entry('v1')] };
+    const snapshot = JSON.stringify(m);
+    removeVersions(m, ['pr-42']);
+    expect(JSON.stringify(m)).toBe(snapshot);
+  });
+
+  it('always emits schema: 2', () => {
+    const m: Manifest = { schema: 1, versions: [entry('pr-1')] };
+    expect(removeVersions(m, ['pr-1']).schema).toBe(2);
   });
 });
 

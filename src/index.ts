@@ -12,6 +12,7 @@ import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
 import { upsertPreviewComment } from './pr-commenter.js';
+import { resolveCleanupVersions } from './pr-cleanup.js';
 import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
 // [LAW:verifiable-goals] parseInputs is exported so __tests__/inputs.test.ts
@@ -52,6 +53,8 @@ export function parseInputs(): DeployConfig {
     widgetLabel: core.getInput('widget-label'),
     widgetPosition,
     widgetColor,
+    prBaseRef: process.env.GITHUB_BASE_REF ?? '',  // set by GitHub on PR events; empty otherwise
+    cleanupVersions: [],  // populated below in run() after GitHub API query
   };
 }
 
@@ -62,11 +65,31 @@ async function run(): Promise<void> {
   core.info(`Deploying from ${config.sourceDir} to ${config.targetBranch}`);
   core.info(`Ref: ${config.ref}, Repo: ${config.repo}`);
 
+  // [LAW:one-source-of-truth] Single octokit instance shared by cleanup and PR comment.
+  const hasRepoSlug = config.repo.includes('/');
+  const [owner, repo] = hasRepoSlug ? config.repo.split('/') : ['', ''];
+  const octokit = hasRepoSlug ? github.getOctokit(config.token) : null;
+
+  // Resolve stale PR versions before deploy. Cleanup failure must never block deploy.
+  // [LAW:dataflow-not-control-flow] resolveCleanupVersions always runs; when octokit is
+  //   absent or the query fails, it produces an empty list — same data shape either way.
+  if (octokit) {
+    try {
+      config.cleanupVersions = await resolveCleanupVersions(octokit, owner, repo, config.targetBranch);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      core.warning(`Cleanup resolution failed: ${msg}. Proceeding without cleanup.`);
+    }
+  }
+
   const result = await deploy(config, sourceRepoDir);
 
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
   core.info(`Deployed ${result.version} to ${result.url}`);
+  if (result.removedVersions.length > 0) {
+    core.info(`Cleaned up ${result.removedVersions.length} stale PR version(s): ${result.removedVersions.join(', ')}`);
+  }
 
   // [LAW:dataflow-not-control-flow] PR eligibility is data: we always reach the same call
   //   shape; the variability is whether `pr` is present. The deploy itself ran unconditionally.
@@ -76,9 +99,7 @@ async function run(): Promise<void> {
   const ctx = github.context;
   const isPrEvent = ctx.eventName === 'pull_request' || ctx.eventName === 'pull_request_target';
   const pr = isPrEvent ? ctx.payload.pull_request : undefined;
-  if (pr && typeof pr.number === 'number' && config.repo.includes('/')) {
-    const [owner, repo] = config.repo.split('/');
-    const octokit = github.getOctokit(config.token);
+  if (pr && typeof pr.number === 'number' && octokit) {
     try {
       await upsertPreviewComment(octokit, {
         owner,

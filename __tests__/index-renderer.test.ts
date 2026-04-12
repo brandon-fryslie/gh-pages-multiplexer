@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { HtmlValidate } from 'html-validate';
-import { renderIndexHtml, escapeHtml } from '../src/index-renderer.js';
+import { renderIndexHtml, renderRedirectHtml, escapeHtml } from '../src/index-renderer.js';
 import type { Manifest, ManifestEntry, CommitInfo } from '../src/types.js';
 
 function entry(partial: Partial<ManifestEntry> & { version: string }): ManifestEntry {
@@ -167,12 +167,12 @@ describe('full card rendering', () => {
     expect(out).toMatch(/class="mono"[^>]*href="https:\/\/github\.com\/acme\/widgets\/commit\/1234567890abcdef1234567890abcdef12345678"[^>]*>1234567<|href="https:\/\/github\.com\/acme\/widgets\/commit\/1234567890abcdef1234567890abcdef12345678"[^>]*class="mono"[^>]*>1234567</);
   });
 
-  it('renders a View → link to ./{version}/', () => {
+  it('renders a View → link to ../{version}/', () => {
     const out = renderIndexHtml(
       { schema: 2, versions: [entry({ version: 'v1.0.0' })] },
       repo,
     );
-    expect(out).toMatch(/href="\.\/v1\.0\.0\/"[^>]*>View \u2192<\/a>/);
+    expect(out).toMatch(/href="\.\.\/v1\.0\.0\/"[^>]*>View \u2192<\/a>/);
   });
 
   it('singular commit copy for exactly 1 commit', () => {
@@ -361,5 +361,50 @@ describe('html-validate gate', () => {
       { owner: 'brandon-fryslie', repo: 'ghpm-validation' },
     );
     await assertValidHtml(out);
+  });
+});
+
+describe('renderRedirectHtml', () => {
+  it('redirects to the latest non-PR version', () => {
+    const manifest: Manifest = {
+      schema: 2,
+      versions: [
+        entry({ version: 'pr-42', ref: 'refs/pull/42/merge' }),
+        entry({ version: 'main', ref: 'refs/heads/main' }),
+        entry({ version: 'v1.0.0', ref: 'refs/tags/v1.0.0' }),
+      ],
+    };
+    const html = renderRedirectHtml(manifest);
+    expect(html).toContain('url=./main/');
+    expect(html).not.toContain('pr-42');
+  });
+
+  it('skips all PR versions to find the first non-PR', () => {
+    const manifest: Manifest = {
+      schema: 2,
+      versions: [
+        entry({ version: 'pr-1', ref: 'refs/pull/1/merge' }),
+        entry({ version: 'pr-2', ref: 'refs/pull/2/merge' }),
+        entry({ version: 'v2.0.0', ref: 'refs/tags/v2.0.0' }),
+      ],
+    };
+    const html = renderRedirectHtml(manifest);
+    expect(html).toContain('url=./v2.0.0/');
+  });
+
+  it('falls back to _versions/ when all versions are PRs', () => {
+    const manifest: Manifest = {
+      schema: 2,
+      versions: [
+        entry({ version: 'pr-1', ref: 'refs/pull/1/merge' }),
+      ],
+    };
+    const html = renderRedirectHtml(manifest);
+    expect(html).toContain('url=./_versions/');
+  });
+
+  it('falls back to _versions/ for empty manifest', () => {
+    const html = renderRedirectHtml({ schema: 2, versions: [] });
+    expect(html).toContain('url=./_versions/');
   });
 });

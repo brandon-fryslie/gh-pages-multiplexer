@@ -17,6 +17,8 @@ const baseConfig = (overrides: Partial<DeployConfig> = {}): DeployConfig => ({
   widgetLabel: '',
   widgetPosition: '',
   widgetColor: '',
+  prBaseRef: '',
+  cleanupVersions: [],
   ...overrides,
 });
 

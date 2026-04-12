@@ -46,6 +46,19 @@ export function updateManifest(manifest: Manifest, entry: ManifestEntry): Manife
 }
 
 /**
+ * Pure function: return a new manifest with the specified versions removed.
+ * When the removal set is empty, the returned manifest is identical to the input.
+ * [LAW:dataflow-not-control-flow] Always runs; empty set = identity transform in data.
+ */
+export function removeVersions(manifest: Manifest, versions: string[]): Manifest {
+  const removalSet = new Set(versions);
+  return {
+    schema: 2,
+    versions: manifest.versions.filter((v) => !removalSet.has(v.version)),
+  };
+}
+
+/**
  * Write the manifest to workdir/versions.json as formatted JSON.
  */
 export async function writeManifest(workdir: string, manifest: Manifest): Promise<void> {

@@ -17,7 +17,7 @@ import * as exec from '@actions/exec';
 import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
 import { WIDGET_MARKER } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
-import { renderIndexHtml } from '../src/index-renderer.js';
+import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
 import type { DeployConfig, DeploymentContext, Manifest } from '../src/types.js';
 import { readFile } from 'node:fs/promises';
 
@@ -37,6 +37,8 @@ const baseConfig: DeployConfig = {
   widgetLabel: '',
   widgetPosition: '',
   widgetColor: '',
+  prBaseRef: '',
+  cleanupVersions: [],
 };
 
 const ctx: DeploymentContext = {
@@ -222,10 +224,12 @@ describe('writeIndexHtml', () => {
     expect(content.length).toBeGreaterThan(0);
   });
 
-  it('content matches renderIndexHtml output', async () => {
+  it('root index.html is a redirect, listing lives at _versions/index.html', async () => {
     await writeIndexHtml(dir, manifest, repoMeta);
-    const content = await readFile(path.join(dir, 'index.html'), 'utf8');
-    expect(content).toBe(renderIndexHtml(manifest, repoMeta));
+    const rootContent = await readFile(path.join(dir, 'index.html'), 'utf8');
+    expect(rootContent).toBe(renderRedirectHtml(manifest));
+    const listingContent = await readFile(path.join(dir, '_versions', 'index.html'), 'utf8');
+    expect(listingContent).toBe(renderIndexHtml(manifest, repoMeta));
   });
 
   it('overwrites an existing index.html', async () => {
@@ -233,15 +237,17 @@ describe('writeIndexHtml', () => {
     await writeIndexHtml(dir, manifest, repoMeta);
     const content = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(content).not.toContain('STALE CONTENT');
-    expect(content).toContain('v1.2.3');
   });
 
   it('is idempotent on repeated calls with same inputs', async () => {
     await writeIndexHtml(dir, manifest, repoMeta);
     const first = await readFile(path.join(dir, 'index.html'), 'utf8');
+    const firstListing = await readFile(path.join(dir, '_versions', 'index.html'), 'utf8');
     await writeIndexHtml(dir, manifest, repoMeta);
     const second = await readFile(path.join(dir, 'index.html'), 'utf8');
+    const secondListing = await readFile(path.join(dir, '_versions', 'index.html'), 'utf8');
     expect(first).toBe(second);
+    expect(firstListing).toBe(secondListing);
   });
 });
 

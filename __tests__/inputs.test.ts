@@ -112,6 +112,8 @@ describe('parseInputs', () => {
       widgetLabel: '',
       widgetPosition: '',
       widgetColor: '',
+      prBaseRef: '',
+      cleanupVersions: [],
     });
   });
 
