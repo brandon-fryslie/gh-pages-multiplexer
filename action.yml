@@ -1,6 +1,6 @@
 name: 'gh-pages-multiplexer'
 description: 'Deploy static sites to versioned subdirectories on gh-pages'
-author: 'bmf'
+author: 'brandon-fryslie'
 
 inputs:
   source-dir:
