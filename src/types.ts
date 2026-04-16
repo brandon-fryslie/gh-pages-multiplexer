@@ -30,6 +30,10 @@ export interface DeployConfig {
   // GitHub Release info for tag deploys. Undefined when not a tag or no release exists.
   // Populated by the adapter (index.ts) via the GitHub API before deploy() runs.
   release?: ReleaseInfo;
+  // When true, inject a runtime wrapper that transparently namespaces all
+  // window.localStorage / window.sessionStorage access by (owner, repo, version).
+  // Default false — this is a behavior change for deployed apps so it's opt-in.
+  namespaceStorage: boolean;
   // Version slots to remove during this deploy (e.g., ["pr-42", "pr-17"]).
   // Populated by the adapter; empty array means no cleanup. The pipeline always
   // runs the cleanup stage — variability lives in the data, not in whether it runs.

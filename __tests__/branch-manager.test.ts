@@ -39,6 +39,7 @@ const baseConfig: DeployConfig = {
   widgetColor: '',
   prBaseRef: '',
   cleanupVersions: [],
+  namespaceStorage: false,
 };
 
 const ctx: DeploymentContext = {

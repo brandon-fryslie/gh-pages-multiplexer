@@ -31,6 +31,8 @@ Options:
   --widget-label=<text>        Widget label, supports {version} token (default: "{version}")
   --widget-position=<spec>     Widget location: "<edge> <vertical%>" (default: "right 80%")
   --widget-color=<hex>         Widget handle background hex color (default: "#f97316")
+  --namespace-storage          Inject runtime wrapper namespacing localStorage and
+                               sessionStorage by <owner>/<repo>/<version> (opt-in)
   --debug                      Print full stack traces on error
   --help                       Show this help and exit
   --version                    Print version and exit
@@ -85,6 +87,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
         'widget-label': { type: 'string' },
         'widget-position': { type: 'string' },
         'widget-color': { type: 'string' },
+        'namespace-storage': { type: 'boolean' },
         'debug': { type: 'boolean' },
       },
     });
@@ -161,6 +164,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
     widgetColor,
     prBaseRef: '',  // CLI does not distinguish PR vs non-PR deploys
     cleanupVersions: [],  // CLI has no GitHub API access; cleanup is a CI concern
+    namespaceStorage: Boolean(parsed.values['namespace-storage']),
   };
 
   try {

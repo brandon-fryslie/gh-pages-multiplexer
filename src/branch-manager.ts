@@ -22,6 +22,8 @@ import {
 import { renderHealth, serializeHealth } from './health-generator.js';
 import { renderStatsHtml } from './stats-renderer.js';
 import { injectCanonicalIntoDir, injectNoindexIntoDir } from './seo-injector.js';
+import { injectStorageWrapperIntoDir } from './storage-wrapper-injector.js';
+import { autoNamespace } from './storage-wrapper.js';
 
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
@@ -267,6 +269,28 @@ export async function writeStatsHtml(
  * and which PR directory to noindex via `currentPrSlot` (null when current
  * deploy is non-PR).
  */
+/**
+ * Inject the storage-wrapper script into every HTML file in a version directory.
+ * The wrapper runs synchronously at page load and installs a Proxy around
+ * window.localStorage and window.sessionStorage that transparently prefixes all
+ * keys with `gh-pm:<owner>/<repo>/<version>:`.
+ *
+ * Enabled-as-data: when `enabled` is false, this is a zero-work no-op. No branching
+ * in the caller.
+ */
+export async function injectStorageWrapperForVersion(
+  workdir: string,
+  versionSlot: string,
+  repoMeta: RepoMeta,
+  enabled: boolean,
+): Promise<number> {
+  const versionDir = path.join(workdir, versionSlot);
+  const opts = enabled
+    ? { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, versionSlot) }
+    : undefined;
+  return injectStorageWrapperIntoDir(versionDir, opts);
+}
+
 export async function applySeoTags(
   workdir: string,
   nonPrSlots: string[],

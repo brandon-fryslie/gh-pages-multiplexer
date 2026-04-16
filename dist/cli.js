@@ -32052,13 +32052,13 @@ function getWidgetScriptTag(opts) {
 </script>`;
 }
 // ---- Recursive walk ---------------------------------------------------------
-async function findHtmlFiles$2(dir) {
+async function findHtmlFiles$3(dir) {
     const results = [];
     const entries = await promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
         const full = path__namespace$1.join(dir, entry.name);
         if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles$2(full)));
+            results.push(...(await findHtmlFiles$3(full)));
         }
         else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
             results.push(full);
@@ -32093,7 +32093,7 @@ function insertScript(html, scriptTag, filePath) {
  */
 async function injectWidgetIntoHtmlFiles(versionDir, opts) {
     const scriptTag = getWidgetScriptTag(opts);
-    const htmlFiles = await findHtmlFiles$2(versionDir);
+    const htmlFiles = await findHtmlFiles$3(versionDir);
     if (htmlFiles.length === 0) {
         // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> 0,
         // not a guarded skip. The info log is the documented happy-path observable.
@@ -32438,7 +32438,7 @@ const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
 const EXISTING_CANONICAL_BLOCK_RE = new RegExp(`${CANONICAL_MARKER.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*<link rel="canonical"[^>]*>`, 'g');
 // Detect user-authored canonical (any `<link rel="canonical"` not preceded by our marker).
 const USER_CANONICAL_RE = /<link\s+[^>]*rel=["']canonical["'][^>]*>/i;
-async function findHtmlFiles$1(dir) {
+async function findHtmlFiles$2(dir) {
     const out = [];
     async function walk(d) {
         let entries;
@@ -32490,7 +32490,7 @@ function insertInHead(html, tag) {
  * Returns the count of files mutated.
  */
 async function injectCanonicalIntoDir(versionDir, canonicalBase) {
-    const htmlFiles = await findHtmlFiles$1(versionDir);
+    const htmlFiles = await findHtmlFiles$2(versionDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${versionDir}, no canonical injection needed`);
         return 0;
@@ -32521,7 +32521,7 @@ async function injectCanonicalIntoDir(versionDir, canonicalBase) {
  * Returns the count of files newly injected.
  */
 async function injectNoindexIntoDir(prDir) {
-    const htmlFiles = await findHtmlFiles$1(prDir);
+    const htmlFiles = await findHtmlFiles$2(prDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${prDir}, no noindex injection needed`);
         return 0;
@@ -32533,6 +32533,212 @@ async function injectNoindexIntoDir(prDir) {
         if (original.includes(NOINDEX_MARKER))
             continue;
         const next = insertInHead(original, tag);
+        await promises.writeFile(file, next, 'utf8');
+        count++;
+    }
+    return count;
+}
+
+// [LAW:single-enforcer] This module is the sole place that knows the storage-wrapper
+//   script template, its marker, and the namespace format.
+// [LAW:one-source-of-truth] STORAGE_WRAPPER_MARKER is the sole identity check for
+//   "this file already has the wrapper." Same pattern as WIDGET_MARKER.
+// [LAW:dataflow-not-control-flow] The generated script ALWAYS runs the same wrap
+//   operation. Variability lives in the namespace string baked into the script, never
+//   in whether wrapping happens at runtime.
+const STORAGE_WRAPPER_MARKER = '<!-- gh-pages-multiplexer:storage-wrapper -->';
+/**
+ * Build the standard auto-namespace prefix for a deployment:
+ *   `gh-pm:<owner>/<repo>/<version>:`
+ *
+ * This isolates each (repo, version) combination from every other site on the same
+ * origin — including other repos under the same `*.github.io` user. Intentionally
+ * also isolates between versions so PR previews don't contaminate production state.
+ */
+function autoNamespace(owner, repo, version) {
+    return `gh-pm:${owner}/${repo}/${version}:`;
+}
+// The runtime wrapper. Runs synchronously, before any user script.
+// A Proxy around the real Storage is installed via Object.defineProperty on window.
+// Named property access (localStorage.foo) flows through the Proxy traps, so all
+// access patterns — method calls AND bracket notation — are namespaced transparently.
+//
+// Scoped operations:
+// - .length returns the count of keys in OUR namespace only
+// - .key(i) iterates only our keys and strips the prefix
+// - .clear() removes only our keys (leaves others on the origin intact)
+//
+// Limitations (documented; out of scope for v1):
+// - `storage` events dispatched by other tabs carry the raw namespaced key in e.key
+// - Web Workers have their own global scope; this wrapper doesn't reach into workers
+// - Cross-origin iframes are unaffected (they have their own origin)
+function renderWrapperScriptBody(namespace) {
+    // NOTE: The namespace is the only user-controlled value. It's a string embedded as
+    // a JSON literal to prevent any script-breaking characters.
+    const NS_LITERAL = JSON.stringify(namespace);
+    return `(function(){
+'use strict';
+if (window.__ghPmStorageWrapped) return;
+var NS = ${NS_LITERAL};
+function wrap(real){
+  if (!real) return real;
+  return new Proxy({}, {
+    get: function(_, key){
+      if (key === 'getItem') return function(k){ return real.getItem(NS + k); };
+      if (key === 'setItem') return function(k, v){ return real.setItem(NS + k, String(v)); };
+      if (key === 'removeItem') return function(k){ return real.removeItem(NS + k); };
+      if (key === 'clear') return function(){
+        var toRemove = [];
+        for (var i = 0; i < real.length; i++){
+          var rk = real.key(i);
+          if (rk && rk.indexOf(NS) === 0) toRemove.push(rk);
+        }
+        for (var j = 0; j < toRemove.length; j++) real.removeItem(toRemove[j]);
+      };
+      if (key === 'key') return function(idx){
+        var seen = 0;
+        for (var i = 0; i < real.length; i++){
+          var rk = real.key(i);
+          if (rk && rk.indexOf(NS) === 0){
+            if (seen === idx) return rk.slice(NS.length);
+            seen++;
+          }
+        }
+        return null;
+      };
+      if (key === 'length'){
+        var n = 0;
+        for (var i = 0; i < real.length; i++){
+          var rk = real.key(i);
+          if (rk && rk.indexOf(NS) === 0) n++;
+        }
+        return n;
+      }
+      if (key === Symbol.toPrimitive || key === 'toString') return function(){ return '[object Storage]'; };
+      if (typeof key === 'string') return real.getItem(NS + key);
+      return undefined;
+    },
+    set: function(_, key, value){
+      if (typeof key === 'string' && key !== 'length') real.setItem(NS + key, String(value));
+      return true;
+    },
+    deleteProperty: function(_, key){
+      if (typeof key === 'string') real.removeItem(NS + key);
+      return true;
+    },
+    has: function(_, key){
+      if (typeof key === 'string') return real.getItem(NS + key) !== null;
+      return false;
+    },
+    ownKeys: function(){
+      var keys = [];
+      for (var i = 0; i < real.length; i++){
+        var rk = real.key(i);
+        if (rk && rk.indexOf(NS) === 0) keys.push(rk.slice(NS.length));
+      }
+      return keys;
+    },
+    getOwnPropertyDescriptor: function(_, key){
+      if (typeof key === 'string'){
+        var v = real.getItem(NS + key);
+        if (v === null) return undefined;
+        return { value: v, writable: true, enumerable: true, configurable: true };
+      }
+      return undefined;
+    }
+  });
+}
+try {
+  var realLocal = window.localStorage;
+  Object.defineProperty(window, 'localStorage', { value: wrap(realLocal), configurable: true });
+} catch(e) {}
+try {
+  var realSession = window.sessionStorage;
+  Object.defineProperty(window, 'sessionStorage', { value: wrap(realSession), configurable: true });
+} catch(e) {}
+window.__ghPmStorageWrapped = true;
+window.__ghPmStorageNamespace = NS;
+})();`;
+}
+/**
+ * Render the full `<script>` tag to inject into the top of `<head>`. Idempotent
+ * via STORAGE_WRAPPER_MARKER.
+ *
+ * Inline script (not `src`) so it executes synchronously before any subsequent
+ * `<head>` content — including user scripts that might access localStorage.
+ */
+function renderStorageWrapperScriptTag(opts) {
+    const body = renderWrapperScriptBody(opts.namespace);
+    return `${STORAGE_WRAPPER_MARKER}<script>${body}</script>`;
+}
+
+// [LAW:single-enforcer] This module is the only place that injects the storage
+//   wrapper script tag into HTML files.
+// [LAW:dataflow-not-control-flow] Walks html files unconditionally. An "enabled"
+//   flag of false produces zero mutations (returns 0); empty directory also
+//   returns 0. Same data shape either way.
+// [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
+async function findHtmlFiles$1(dir) {
+    const out = [];
+    async function walk(d) {
+        let entries;
+        try {
+            entries = await promises.readdir(d, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const e of entries) {
+            const full = path$1.join(d, e.name);
+            if (e.isDirectory())
+                await walk(full);
+            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
+                out.push(full);
+        }
+    }
+    await walk(dir);
+    return out;
+}
+/**
+ * Insert tag as the first child of <head>, or before </head> if no opening tag
+ * is found, or wrap the document in a minimal <head> for pathological HTML.
+ * [LAW:dataflow-not-control-flow] Three data-driven positions, one insertion op.
+ */
+function insertAtHeadStart(html, tag) {
+    const headOpen = html.search(/<head[^>]*>/i);
+    if (headOpen !== -1) {
+        const end = html.indexOf('>', headOpen) + 1;
+        return html.slice(0, end) + tag + html.slice(end);
+    }
+    const headClose = html.toLowerCase().lastIndexOf('</head>');
+    if (headClose !== -1) {
+        return html.slice(0, headClose) + tag + html.slice(headClose);
+    }
+    return `<head>${tag}</head>` + html;
+}
+/**
+ * Walk `versionDir` recursively and inject the storage-wrapper script into
+ * every *.html file. Idempotent: files already containing the marker are left
+ * byte-identical.
+ *
+ * Returns the count of files newly injected. Zero when the walk finds no HTML,
+ * or when `opts` is undefined (a "disabled" data value, not a guarded skip).
+ */
+async function injectStorageWrapperIntoDir(versionDir, opts) {
+    if (!opts)
+        return 0; // disabled-as-data: no files to walk for this deploy
+    const tag = renderStorageWrapperScriptTag(opts);
+    const htmlFiles = await findHtmlFiles$1(versionDir);
+    if (htmlFiles.length === 0) {
+        info(`0 HTML files in ${versionDir}, no storage-wrapper injection needed`);
+        return 0;
+    }
+    let count = 0;
+    for (const file of htmlFiles) {
+        const original = await promises.readFile(file, 'utf8');
+        if (original.includes(STORAGE_WRAPPER_MARKER))
+            continue;
+        const next = insertAtHeadStart(original, tag);
         await promises.writeFile(file, next, 'utf8');
         count++;
     }
@@ -32727,6 +32933,22 @@ async function writeStatsHtml(workdir, repoMeta) {
  * and which PR directory to noindex via `currentPrSlot` (null when current
  * deploy is non-PR).
  */
+/**
+ * Inject the storage-wrapper script into every HTML file in a version directory.
+ * The wrapper runs synchronously at page load and installs a Proxy around
+ * window.localStorage and window.sessionStorage that transparently prefixes all
+ * keys with `gh-pm:<owner>/<repo>/<version>:`.
+ *
+ * Enabled-as-data: when `enabled` is false, this is a zero-work no-op. No branching
+ * in the caller.
+ */
+async function injectStorageWrapperForVersion(workdir, versionSlot, repoMeta, enabled) {
+    const versionDir = path__namespace$1.join(workdir, versionSlot);
+    const opts = enabled
+        ? { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, versionSlot) }
+        : undefined;
+    return injectStorageWrapperIntoDir(versionDir, opts);
+}
 async function applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot) {
     let canonicalCount = 0;
     // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
@@ -33080,6 +33302,12 @@ async function deploy(config, sourceRepoDir) {
             color: config.widgetColor,
         });
         info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
+        // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
+        // and sessionStorage for deployed apps so repos on the same *.github.io origin
+        // don't collide. Enabled-as-data: when config.namespaceStorage is false, this
+        // is a zero-work no-op.
+        const storageCount = await injectStorageWrapperForVersion(workdir, context.versionSlot, { owner: repoOwner, repo: repoName }, config.namespaceStorage);
+        info(`Injected storage wrapper into ${storageCount} HTML file(s) in ${context.versionSlot}`);
         // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
         // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
         // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
@@ -33144,6 +33372,8 @@ Options:
   --widget-label=<text>        Widget label, supports {version} token (default: "{version}")
   --widget-position=<spec>     Widget location: "<edge> <vertical%>" (default: "right 80%")
   --widget-color=<hex>         Widget handle background hex color (default: "#f97316")
+  --namespace-storage          Inject runtime wrapper namespacing localStorage and
+                               sessionStorage by <owner>/<repo>/<version> (opt-in)
   --debug                      Print full stack traces on error
   --help                       Show this help and exit
   --version                    Print version and exit
@@ -33193,6 +33423,7 @@ async function main(argv, env) {
                 'widget-label': { type: 'string' },
                 'widget-position': { type: 'string' },
                 'widget-color': { type: 'string' },
+                'namespace-storage': { type: 'boolean' },
                 'debug': { type: 'boolean' },
             },
         });
@@ -33261,6 +33492,7 @@ async function main(argv, env) {
         widgetColor,
         prBaseRef: '', // CLI does not distinguish PR vs non-PR deploys
         cleanupVersions: [], // CLI has no GitHub API access; cleanup is a CI concern
+        namespaceStorage: Boolean(parsed.values['namespace-storage']),
     };
     try {
         const result = await deploy(config, process.cwd());

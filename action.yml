@@ -42,6 +42,10 @@ inputs:
     description: 'Hex color (e.g. "#f97316") for the widget handle background. Default: bright orange "#f97316".'
     required: false
     default: ''
+  namespace-storage:
+    description: 'When "true", inject a runtime wrapper that transparently namespaces localStorage and sessionStorage by <owner>/<repo>/<version>. Prevents collision between different repos on the same <owner>.github.io origin. Default: "false" (opt-in — the wrapper is a behavior change for deployed apps).'
+    required: false
+    default: 'false'
   token:
     description: 'GitHub token for pushing to the target branch'
     required: false

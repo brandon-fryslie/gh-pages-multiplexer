@@ -24,6 +24,7 @@ import {
   writeHealthJson,
   writeStatsHtml,
   applySeoTags,
+  injectStorageWrapperForVersion,
 } from './branch-manager.js';
 import { readManifest, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
@@ -99,6 +100,18 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
       },
     );
     core.info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
+
+    // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
+    // and sessionStorage for deployed apps so repos on the same *.github.io origin
+    // don't collide. Enabled-as-data: when config.namespaceStorage is false, this
+    // is a zero-work no-op.
+    const storageCount = await injectStorageWrapperForVersion(
+      workdir,
+      context.versionSlot,
+      { owner: repoOwner, repo: repoName },
+      config.namespaceStorage,
+    );
+    core.info(`Injected storage wrapper into ${storageCount} HTML file(s) in ${context.versionSlot}`);
 
     // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
     // latest non-PR); noindex on the current PR directory (if this deploy is a PR).

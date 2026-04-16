@@ -114,6 +114,7 @@ describe('parseInputs', () => {
       widgetColor: '',
       prBaseRef: '',
       cleanupVersions: [],
+      namespaceStorage: false,
     });
   });
 

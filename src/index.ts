@@ -56,6 +56,7 @@ export function parseInputs(): DeployConfig {
     widgetColor,
     prBaseRef: process.env.GITHUB_BASE_REF ?? '',  // set by GitHub on PR events; empty otherwise
     cleanupVersions: [],  // populated below in run() after GitHub API query
+    namespaceStorage: core.getInput('namespace-storage').trim().toLowerCase() === 'true',
   };
 }
 
