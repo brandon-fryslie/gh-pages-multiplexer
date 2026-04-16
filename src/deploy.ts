@@ -11,10 +11,26 @@
 import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, ManifestEntry } from './types.js';
 import { resolveContext } from './ref-resolver.js';
-import { prepareBranch, commitAndPush, cleanupWorktree, readCnameFile, writeIndexHtml, injectWidgetForVersion, removeVersionDirectories } from './branch-manager.js';
+import {
+  prepareBranch,
+  commitAndPush,
+  cleanupWorktree,
+  readCnameFile,
+  writeIndexHtml,
+  injectWidgetForVersion,
+  removeVersionDirectories,
+  writeRobotsTxt,
+  writeSitemapXml,
+  writeHealthJson,
+  writeStatsHtml,
+  applySeoTags,
+} from './branch-manager.js';
 import { readManifest, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
+import { latestNonPrSlot } from './sitemap-generator.js';
+
+const PR_VERSION_RE = /^pr-\d+$/;
 
 export async function deploy(config: DeployConfig, sourceRepoDir: string): Promise<DeployResult> {
   // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
@@ -43,6 +59,7 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
       sha: context.sha,
       timestamp: context.timestamp,
       commits,
+      release: config.release,  // undefined when not a tag or no release exists → key omitted from JSON
     };
     // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
     //   read → add new entry → remove stale entries → write. Both always run;
@@ -83,12 +100,34 @@ export async function deploy(config: DeployConfig, sourceRepoDir: string): Promi
     );
     core.info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
 
+    // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
+    // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+    // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
+    //   null PR slot = zero noindex injections. No guarded skips.
+    const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
+    const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
+    const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
+    const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
+    const latestSlot = latestNonPrSlot(cleanedManifest);
+    const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;
+    const nonPrSlots = cleanedManifest.versions
+      .filter((v) => !PR_VERSION_RE.test(v.version))
+      .map((v) => v.version);
+    const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
+    const seoCounts = await applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot);
+    core.info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
+
+    // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
+    // Written at the worktree root. Stats dashboard lives under _versions/.
+    // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
+    await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
+    await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+    await writeHealthJson(workdir, cleanedManifest, context.timestamp);
+    await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
+
     // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
     await commitAndPush(workdir, context, config.targetBranch);
 
-    // Compute deployed URL. Custom domain uses actual CNAME contents (not a placeholder).
-    const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
-    const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
     const url = `${baseUrl}${context.basePath}`;
 
     return { version: context.versionSlot, url, removedVersions: config.cleanupVersions };

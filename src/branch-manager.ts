@@ -12,6 +12,16 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { DeployConfig, DeploymentContext, Manifest } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
+import { renderRobotsTxt } from './robots-generator.js';
+import {
+  findHtmlFilesRelative,
+  latestNonPrSlot,
+  renderEmptySitemap,
+  renderSitemapXml,
+} from './sitemap-generator.js';
+import { renderHealth, serializeHealth } from './health-generator.js';
+import { renderStatsHtml } from './stats-renderer.js';
+import { injectCanonicalIntoDir, injectNoindexIntoDir } from './seo-injector.js';
 
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
@@ -180,4 +190,102 @@ export async function injectWidgetForVersion(
     position: customization.position,
     color: customization.color,
   });
+}
+
+// ---- SEO / health / stats writers ------------------------------------------
+// [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
+// The pure renderers / injectors produce content; these wrappers land it on disk.
+
+/**
+ * Write robots.txt at the worktree root. Disallows crawlers from every PR
+ * preview directory currently in the manifest.
+ */
+export async function writeRobotsTxt(
+  workdir: string,
+  manifest: Manifest,
+  siteRoot: string,
+): Promise<void> {
+  const txt = renderRobotsTxt(manifest, siteRoot);
+  await writeFile(path.join(workdir, 'robots.txt'), txt, 'utf8');
+}
+
+/**
+ * Write sitemap.xml at the worktree root. URLs point at the latest non-PR
+ * version's HTML files. If no non-PR version exists, an empty urlset is emitted.
+ */
+export async function writeSitemapXml(
+  workdir: string,
+  manifest: Manifest,
+  baseUrl: string,
+  lastmod: string,
+): Promise<void> {
+  const slot = latestNonPrSlot(manifest);
+  let xml: string;
+  if (slot === null) {
+    xml = renderEmptySitemap();
+  } else {
+    const relPaths = await findHtmlFilesRelative(path.join(workdir, slot));
+    xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
+  }
+  await writeFile(path.join(workdir, 'sitemap.xml'), xml, 'utf8');
+}
+
+/**
+ * Write _health.json at the worktree root. Pure projection of the manifest +
+ * deploy timestamp. Used by external uptime monitors.
+ */
+export async function writeHealthJson(
+  workdir: string,
+  manifest: Manifest,
+  generatedAt: string,
+): Promise<void> {
+  const record = renderHealth(manifest, generatedAt);
+  await writeFile(path.join(workdir, '_health.json'), serializeHealth(record), 'utf8');
+}
+
+/**
+ * Write the client-side stats dashboard at _versions/stats.html. The rendered
+ * page is static HTML + inline JS that fetches versions.json at runtime.
+ */
+export async function writeStatsHtml(
+  workdir: string,
+  repoMeta: RepoMeta,
+): Promise<void> {
+  const versionsDir = path.join(workdir, '_versions');
+  await mkdir(versionsDir, { recursive: true });
+  const html = renderStatsHtml(repoMeta);
+  await writeFile(path.join(versionsDir, 'stats.html'), html, 'utf8');
+}
+
+/**
+ * Inject/update canonical URLs into every non-PR version directory, pointing at
+ * the latest non-PR version's equivalent path. For PR directories, inject
+ * noindex instead. The `latestNonPrSiteBase` is the absolute URL base for the
+ * latest non-PR version (e.g., "https://example.com/v2.0.0").
+ *
+ * Data-driven: caller decides which directories to process via `nonPrSlots`
+ * and which PR directory to noindex via `currentPrSlot` (null when current
+ * deploy is non-PR).
+ */
+export async function applySeoTags(
+  workdir: string,
+  nonPrSlots: string[],
+  latestNonPrSiteBase: string | null,
+  currentPrSlot: string | null,
+): Promise<{ canonicalCount: number; noindexCount: number }> {
+  let canonicalCount = 0;
+  // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
+  //   should be empty (caller ensures); loop trivially finishes with 0.
+  if (latestNonPrSiteBase !== null) {
+    for (const slot of nonPrSlots) {
+      const versionDir = path.join(workdir, slot);
+      canonicalCount += await injectCanonicalIntoDir(versionDir, latestNonPrSiteBase);
+    }
+  }
+  let noindexCount = 0;
+  if (currentPrSlot !== null) {
+    const prDir = path.join(workdir, currentPrSlot);
+    noindexCount = await injectNoindexIntoDir(prDir);
+  }
+  return { canonicalCount, noindexCount };
 }

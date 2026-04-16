@@ -13,6 +13,7 @@ import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
 import { upsertPreviewComment } from './pr-commenter.js';
 import { resolveCleanupVersions } from './pr-cleanup.js';
+import { fetchReleaseForRef } from './release-fetcher.js';
 import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
 // [LAW:verifiable-goals] parseInputs is exported so __tests__/inputs.test.ts
@@ -79,6 +80,16 @@ async function run(): Promise<void> {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       core.warning(`Cleanup resolution failed: ${msg}. Proceeding without cleanup.`);
+    }
+
+    // Look up GitHub Release metadata for tag refs. Non-tag refs and tags without
+    // a release produce undefined (no-op in the pipeline).
+    try {
+      const release = await fetchReleaseForRef(octokit, owner, repo, config.ref);
+      if (release) config.release = release;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      core.warning(`Release lookup failed: ${msg}. Proceeding without release metadata.`);
     }
   }
 

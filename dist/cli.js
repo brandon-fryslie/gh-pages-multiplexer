@@ -31476,6 +31476,11 @@ summary { cursor: pointer; color: var(--fg-muted); font-size: 13px; }
 .commits li { font-size: 13px; }
 footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 13px; }
 .empty { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; color: var(--fg-muted); }
+.release { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: rgba(9, 105, 218, 0.06); border-radius: 0 6px 6px 0; }
+.release-link { font-weight: 600; font-size: 14px; }
+.release-body { margin: 6px 0 0; font-size: 13px; color: var(--fg-muted); }
+.prerelease { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #fff3c4; color: #7a5d00; margin-left: 6px; font-weight: 500; }
+@media (prefers-color-scheme: dark) { .release { background: rgba(47, 129, 247, 0.08); } .prerelease { background: #3a2f00; color: #ffda6a; } }
 @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --bg-card: #161b22; --fg: #e6edf3; --fg-muted: #8d96a0; --border: #30363d; --accent: #2f81f7; --accent-hover: #539bf5; } }
 @media (max-width: 600px) { main { padding: 16px 12px; } h1 { font-size: 22px; } h2 { font-size: 18px; } .version { padding: 16px 16px; } .version-head { flex-direction: column; align-items: flex-start; gap: 4px; } }`;
 function renderCommitRow(c) {
@@ -31492,6 +31497,22 @@ function renderCommitDetailsBlock(commits) {
     return commits.length === 0
         ? ''
         : `<details><summary>${commits.length} ${word}</summary><ul class="commits">${rows}</ul></details>`;
+}
+function renderReleaseBlock(entry) {
+    // [LAW:dataflow-not-control-flow] Absent release = empty string; no guarded skip.
+    if (!entry.release)
+        return '';
+    const { name, url, prerelease, body } = entry.release;
+    const tag = prerelease ? ' <span class="prerelease">pre-release</span>' : '';
+    // Truncate release body to first 240 chars as plain text for the summary.
+    const bodyPreview = body.replace(/\s+/g, ' ').trim().slice(0, 240);
+    const hasMore = body.length > 240;
+    return (`<div class="release">` +
+        `<a href="${escapeHtml(url)}" class="release-link">\u{1F3F7} ${escapeHtml(name)}${tag}</a>` +
+        (bodyPreview.length > 0
+            ? `<p class="release-body">${escapeHtml(bodyPreview)}${hasMore ? '\u2026' : ''}</p>`
+            : '') +
+        `</div>`);
 }
 function renderVersionCard(entry, repoMeta) {
     // [LAW:single-enforcer] all user-controlled fields escaped at interpolation.
@@ -31514,13 +31535,14 @@ function renderVersionCard(entry, repoMeta) {
         `<span>\u00b7</span>` +
         `<a href="${viewUrl}">View \u2192</a>` +
         `</p>` +
+        renderReleaseBlock(entry) +
         renderCommitDetailsBlock(commits) +
         `</article>`);
 }
 function renderEmptyState() {
     return `<article class="empty"><h2>No versions deployed yet</h2><p>Deploy a version to see it here.</p></article>`;
 }
-const PR_VERSION_RE = /^pr-\d+$/;
+const PR_VERSION_RE$3 = /^pr-\d+$/;
 /**
  * Render the root index.html as a redirect to the latest non-PR version.
  * Falls back to the version listing page when no non-PR version exists.
@@ -31528,7 +31550,7 @@ const PR_VERSION_RE = /^pr-\d+$/;
  * target is data derived from the manifest (latest non-PR, or listing fallback).
  */
 function renderRedirectHtml(manifest) {
-    const latest = manifest.versions.find((v) => !PR_VERSION_RE.test(v.version));
+    const latest = manifest.versions.find((v) => !PR_VERSION_RE$3.test(v.version));
     const target = latest ? `./${escapeHtml(latest.version)}/` : './_versions/';
     return (`<!DOCTYPE html>\n` +
         `<html lang="en">\n` +
@@ -32030,13 +32052,13 @@ function getWidgetScriptTag(opts) {
 </script>`;
 }
 // ---- Recursive walk ---------------------------------------------------------
-async function findHtmlFiles$1(dir) {
+async function findHtmlFiles$2(dir) {
     const results = [];
     const entries = await promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
         const full = path__namespace$1.join(dir, entry.name);
         if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles$1(full)));
+            results.push(...(await findHtmlFiles$2(full)));
         }
         else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
             results.push(full);
@@ -32071,7 +32093,7 @@ function insertScript(html, scriptTag, filePath) {
  */
 async function injectWidgetIntoHtmlFiles(versionDir, opts) {
     const scriptTag = getWidgetScriptTag(opts);
-    const htmlFiles = await findHtmlFiles$1(versionDir);
+    const htmlFiles = await findHtmlFiles$2(versionDir);
     if (htmlFiles.length === 0) {
         // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> 0,
         // not a guarded skip. The info log is the documented happy-path observable.
@@ -32088,6 +32110,431 @@ async function injectWidgetIntoHtmlFiles(versionDir, opts) {
             await promises.writeFile(file, injected, 'utf8');
             count++;
         }
+    }
+    return count;
+}
+
+const PR_VERSION_RE$2 = /^pr-\d+$/;
+/**
+ * Render the root robots.txt. Disallows crawlers from every PR preview directory.
+ *
+ * `siteRoot` is the URL path the gh-pages root is served from on the final domain.
+ * For custom-domain sites: "/". For project sites: "/<repo>/".
+ * (robots.txt lines are interpreted relative to the domain, not the file's location,
+ *  so we must emit absolute paths that reflect the actual serving URL.)
+ *
+ * NOTE: robots.txt is only honored when it lives at the domain root. This works
+ * natively for custom-domain deployments. For `<owner>.github.io/<repo>/` sites,
+ * the file at `<repo>/robots.txt` is NOT picked up by crawlers — the meta noindex
+ * tag injected into PR pages is the primary defense for those.
+ */
+function renderRobotsTxt(manifest, siteRoot) {
+    const prSlots = manifest.versions
+        .filter((v) => PR_VERSION_RE$2.test(v.version))
+        .map((v) => v.version);
+    // Normalize siteRoot to have a single leading slash and exactly one trailing slash.
+    const normalized = ('/' + siteRoot.replace(/^\/+|\/+$/g, '') + '/').replace(/\/+/g, '/');
+    const lines = [
+        'User-agent: *',
+        ...prSlots.map((slot) => `Disallow: ${normalized}${slot}/`),
+        '',
+    ];
+    return lines.join('\n');
+}
+
+// [LAW:one-source-of-truth] The sitemap reflects the latest non-PR version only.
+//   PR previews are explicitly excluded (they're noindex-tagged; listing them in a
+//   sitemap would contradict that).
+// [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
+//   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
+const PR_VERSION_RE$1 = /^pr-\d+$/;
+/**
+ * Find the most recently deployed non-PR version slot. Returns null when no
+ * such version exists (empty manifest or all-PR manifest).
+ */
+function latestNonPrSlot(manifest) {
+    const entry = manifest.versions.find((v) => !PR_VERSION_RE$1.test(v.version));
+    return entry ? entry.version : null;
+}
+/**
+ * Walk `dir` and return absolute paths to every *.html file below it.
+ * Empty directory or missing directory yields [].
+ */
+async function findHtmlFilesRelative(root) {
+    const out = [];
+    async function walk(dir, prefix) {
+        let entries;
+        try {
+            entries = await promises.readdir(dir, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const e of entries) {
+            const rel = prefix ? `${prefix}/${e.name}` : e.name;
+            if (e.isDirectory())
+                await walk(path$1.join(dir, e.name), rel);
+            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
+                out.push(rel);
+        }
+    }
+    await walk(root, '');
+    return out.sort();
+}
+/**
+ * Render a sitemap.xml for the given set of relative URLs, rooted under a
+ * version slot within a site. The `loc` URLs are absolute.
+ *
+ * baseUrl: site base (e.g., "https://example.com" or "https://owner.github.io/repo")
+ * slot: version directory name (e.g., "v2.0.0")
+ * htmlRelPaths: relative HTML paths under the slot (e.g., ["index.html", "docs/api.html"])
+ * lastmod: ISO 8601 date string (typically the deploy timestamp)
+ */
+function renderSitemapXml(baseUrl, slot, htmlRelPaths, lastmod) {
+    const dateOnly = lastmod.slice(0, 10); // YYYY-MM-DD per sitemap spec
+    const header = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+    const body = htmlRelPaths
+        .map((rel) => {
+        const loc = `${baseUrl}/${slot}/${rel}`;
+        return `  <url>\n    <loc>${escapeHtml(loc)}</loc>\n    <lastmod>${escapeHtml(dateOnly)}</lastmod>\n  </url>\n`;
+    })
+        .join('');
+    return header + body + '</urlset>\n';
+}
+/**
+ * Empty sitemap (valid but with no URLs). Emitted when no non-PR version
+ * exists — still a valid sitemap, just zero entries.
+ */
+function renderEmptySitemap() {
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+        '</urlset>\n');
+}
+
+/**
+ * Build a deployment health record. Intended to be served at `/_health.json`
+ * for external monitoring (uptime checks, synthetic monitors).
+ */
+function renderHealth(manifest, generatedAt) {
+    const latest = manifest.versions[0];
+    return {
+        status: 'ok',
+        schema: manifest.schema,
+        version_count: manifest.versions.length,
+        latest_non_pr: latestNonPrSlot(manifest),
+        latest_deploy_version: latest ? latest.version : null,
+        latest_deploy_sha: latest ? latest.sha : null,
+        generated_at: generatedAt,
+    };
+}
+/**
+ * Serialize a HealthRecord to JSON with a trailing newline.
+ */
+function serializeHealth(record) {
+    return JSON.stringify(record, null, 2) + '\n';
+}
+
+// [LAW:one-source-of-truth] The stats page is a pure client-side projection of
+//   versions.json. It does not duplicate data; it fetches and renders.
+// [LAW:dataflow-not-control-flow] renderStatsHtml returns a deterministic HTML
+//   string. Runtime rendering in the browser runs the same JS every time; empty
+//   manifest produces an empty-state render.
+// [LAW:single-enforcer] All user-controlled interpolation at server-render time
+//   MUST go through escapeHtml(). The inline JS escapes user data at runtime too.
+// Static CSS — no interpolation, safe to inline as a template literal.
+const STATS_CSS = `:root { --bg: #ffffff; --bg-card: #fafafa; --fg: #1f2328; --fg-muted: #656d76; --border: #d0d7de; --accent: #0969da; --bar: #2da44e; --bar-pr: #bf8700; }
+body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 15px; line-height: 1.5; margin: 0; }
+main { max-width: 920px; margin: 0 auto; padding: 24px 16px; }
+h1 { font-size: 24px; font-weight: 600; margin: 0 0 4px; }
+h2 { font-size: 18px; font-weight: 600; margin: 24px 0 12px; }
+.subtitle { color: var(--fg-muted); margin: 0 0 24px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+.stats-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; flex: 1 1 140px; }
+.stat-label { color: var(--fg-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.stat-value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+.bar-row { display: grid; grid-template-columns: 120px 1fr 48px; gap: 10px; align-items: center; margin-bottom: 4px; font-size: 13px; }
+.bar-label { color: var(--fg-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.bar-track { height: 14px; background: #e7e9ec; border-radius: 4px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--bar); }
+.bar-fill.pr { background: var(--bar-pr); }
+.bar-value { font-variant-numeric: tabular-nums; color: var(--fg-muted); }
+.authors { display: flex; flex-direction: column; gap: 6px; }
+.author-row { display: grid; grid-template-columns: 1fr 48px; gap: 10px; align-items: center; font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; }
+.empty { text-align: center; color: var(--fg-muted); padding: 32px; }
+footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 13px; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --bg-card: #161b22; --fg: #e6edf3; --fg-muted: #8d96a0; --border: #30363d; --accent: #2f81f7; --bar: #2f6f46; --bar-pr: #a66f00; } .bar-track { background: #30363d; } }
+@media (max-width: 600px) { main { padding: 16px 12px; } .bar-row { grid-template-columns: 90px 1fr 44px; } }`;
+// Client-side script — data-driven, no DOM branches that skip rendering.
+// Uses native fetch + DOM; zero dependencies. All user-controlled data is escaped
+// via setting .textContent (not innerHTML) at render time.
+const STATS_SCRIPT = `
+(function(){
+  'use strict';
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function weekKey(iso){
+    var d = new Date(iso);
+    if (!isFinite(d.getTime())) return 'unknown';
+    // ISO week start (Monday)
+    var day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() - (day - 1));
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth()+1) + '-' + pad(d.getUTCDate());
+  }
+  function setText(id, v){
+    var el = document.getElementById(id);
+    if (el) el.textContent = String(v);
+  }
+  function renderBars(container, rows, totalMax, pr){
+    container.textContent = '';
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var row = document.createElement('div'); row.className = 'bar-row';
+      var label = document.createElement('span'); label.className = 'bar-label mono';
+      label.textContent = r.label;
+      var track = document.createElement('div'); track.className = 'bar-track';
+      var fill = document.createElement('div'); fill.className = 'bar-fill' + (pr ? ' pr' : '');
+      fill.style.width = (totalMax > 0 ? (r.value / totalMax * 100) : 0) + '%';
+      track.appendChild(fill);
+      var value = document.createElement('span'); value.className = 'bar-value';
+      value.textContent = String(r.value);
+      row.appendChild(label); row.appendChild(track); row.appendChild(value);
+      container.appendChild(row);
+    }
+  }
+  fetch('../versions.json', { cache: 'no-store' }).then(function(r){
+    if (!r.ok) throw new Error('versions.json fetch failed: ' + r.status);
+    return r.json();
+  }).then(function(manifest){
+    var versions = (manifest && manifest.versions) || [];
+    var prRe = /^pr-\\d+$/;
+
+    var total = versions.length;
+    var prCount = 0, tagCount = 0, branchCount = 0;
+    var byWeek = {};
+    var byAuthor = {};
+
+    for (var i = 0; i < versions.length; i++) {
+      var v = versions[i];
+      var isPr = prRe.test(v.version);
+      if (isPr) prCount++;
+      else if (/^refs\\/tags\\//.test(v.ref || '')) tagCount++;
+      else branchCount++;
+
+      var wk = weekKey(v.timestamp);
+      byWeek[wk] = byWeek[wk] || { total: 0, pr: 0 };
+      byWeek[wk].total++;
+      if (isPr) byWeek[wk].pr++;
+
+      var commits = v.commits || [];
+      for (var j = 0; j < commits.length; j++) {
+        var name = commits[j].author_name || 'unknown';
+        byAuthor[name] = (byAuthor[name] || 0) + 1;
+      }
+    }
+
+    setText('stat-total', total);
+    setText('stat-tags', tagCount);
+    setText('stat-branches', branchCount);
+    setText('stat-prs', prCount);
+
+    if (total === 0) {
+      var empty = document.getElementById('empty-state');
+      if (empty) empty.style.display = 'block';
+      var cards = document.getElementById('charts');
+      if (cards) cards.style.display = 'none';
+      return;
+    }
+
+    // Weekly deploy chart — last 12 weeks.
+    var weeks = Object.keys(byWeek).sort().slice(-12);
+    var weekMax = 0;
+    for (var k = 0; k < weeks.length; k++) {
+      if (byWeek[weeks[k]].total > weekMax) weekMax = byWeek[weeks[k]].total;
+    }
+    var weekRows = weeks.map(function(w){
+      return { label: w, value: byWeek[w].total };
+    });
+    renderBars(document.getElementById('chart-weeks'), weekRows, weekMax, false);
+
+    // Top contributors — sorted by commit count, top 10.
+    var authors = Object.keys(byAuthor)
+      .map(function(n){ return { name: n, count: byAuthor[n] }; })
+      .sort(function(a, b){ return b.count - a.count; })
+      .slice(0, 10);
+    var authorMax = authors.length > 0 ? authors[0].count : 0;
+    var authorRows = authors.map(function(a){ return { label: a.name, value: a.count }; });
+    renderBars(document.getElementById('chart-authors'), authorRows, authorMax, false);
+
+    setText('generated-at', manifest.generated_at || new Date().toISOString());
+  }).catch(function(err){
+    var banner = document.getElementById('error-banner');
+    if (banner) {
+      banner.textContent = 'Failed to load stats: ' + err.message;
+      banner.style.display = 'block';
+    }
+  });
+})();
+`;
+function renderStatsHtml(repoMeta) {
+    const title = `${repoMeta.owner}/${repoMeta.repo} — Deploy Stats`;
+    const heading = `${repoMeta.owner}/${repoMeta.repo}`;
+    const repoUrl = `https://github.com/${escapeHtml(repoMeta.owner)}/${escapeHtml(repoMeta.repo)}`;
+    return (`<!DOCTYPE html>\n` +
+        `<html lang="en">\n` +
+        `<head>\n` +
+        `<meta charset="utf-8">\n` +
+        `<meta name="viewport" content="width=device-width, initial-scale=1">\n` +
+        `<title>${escapeHtml(title)}</title>\n` +
+        `<style>${STATS_CSS}</style>\n` +
+        `</head>\n` +
+        `<body>\n` +
+        `<main>\n` +
+        `<header>\n` +
+        `<h1><a href="${repoUrl}" title="View on GitHub">${escapeHtml(heading)}</a></h1>\n` +
+        `<p class="subtitle">Deploy stats \u00b7 <a href="./">\u2190 Versions</a></p>\n` +
+        `</header>\n` +
+        `<div id="error-banner" class="card" style="display:none;color:#b91c1c;"></div>\n` +
+        `<section class="stats-row">\n` +
+        `  <div class="stat"><div class="stat-label">Total deploys</div><div class="stat-value" id="stat-total">—</div></div>\n` +
+        `  <div class="stat"><div class="stat-label">Tags</div><div class="stat-value" id="stat-tags">—</div></div>\n` +
+        `  <div class="stat"><div class="stat-label">Branches</div><div class="stat-value" id="stat-branches">—</div></div>\n` +
+        `  <div class="stat"><div class="stat-label">PR previews</div><div class="stat-value" id="stat-prs">—</div></div>\n` +
+        `</section>\n` +
+        `<div id="charts">\n` +
+        `<section class="card">\n` +
+        `<h2>Deploys per week (last 12)</h2>\n` +
+        `<div id="chart-weeks"></div>\n` +
+        `</section>\n` +
+        `<section class="card">\n` +
+        `<h2>Top contributors</h2>\n` +
+        `<div id="chart-authors"></div>\n` +
+        `</section>\n` +
+        `</div>\n` +
+        `<div id="empty-state" class="card empty" style="display:none;">\n` +
+        `<p>No deployments yet \u2014 stats will appear after the first deploy.</p>\n` +
+        `</div>\n` +
+        `<footer>Generated by gh-pages-multiplexer \u00b7 <span id="generated-at"></span></footer>\n` +
+        `</main>\n` +
+        `<script>${STATS_SCRIPT}</script>\n` +
+        `</body>\n` +
+        `</html>\n`);
+}
+
+// [LAW:single-enforcer] This module is the only place that knows the SEO marker,
+//   the canonical/noindex tag formats, and the HTML injection rules.
+// [LAW:one-source-of-truth] CANONICAL_MARKER / NOINDEX_MARKER are the sole identity
+//   checks for "this file already has our SEO tag." Same pattern as WIDGET_MARKER.
+// [LAW:dataflow-not-control-flow] Walk → read → decide → write. Empty lists produce
+//   zero side effects. Variability is data (tag content), not skipped operations.
+// [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
+const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
+const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
+// Matches any existing gh-pm canonical block (marker + link tag). We only replace
+// tags we injected ourselves; user-authored canonicals are respected and skipped.
+const EXISTING_CANONICAL_BLOCK_RE = new RegExp(`${CANONICAL_MARKER.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*<link rel="canonical"[^>]*>`, 'g');
+// Detect user-authored canonical (any `<link rel="canonical"` not preceded by our marker).
+const USER_CANONICAL_RE = /<link\s+[^>]*rel=["']canonical["'][^>]*>/i;
+async function findHtmlFiles$1(dir) {
+    const out = [];
+    async function walk(d) {
+        let entries;
+        try {
+            entries = await promises.readdir(d, { withFileTypes: true });
+        }
+        catch {
+            return;
+        }
+        for (const e of entries) {
+            const full = path$1.join(d, e.name);
+            if (e.isDirectory())
+                await walk(full);
+            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
+                out.push(full);
+        }
+    }
+    await walk(dir);
+    return out;
+}
+function buildCanonicalTag(url) {
+    // Minimal HTML escape for attribute value (URLs rarely contain these, but be safe).
+    const safe = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `${CANONICAL_MARKER}<link rel="canonical" href="${safe}">`;
+}
+function buildNoindexTag() {
+    return `${NOINDEX_MARKER}<meta name="robots" content="noindex,nofollow">`;
+}
+function insertInHead(html, tag) {
+    // Prefer inserting right after <head> opening tag; fall back to before </head>.
+    // [LAW:dataflow-not-control-flow] Three data-driven positions, single insertion op.
+    const headOpen = html.search(/<head[^>]*>/i);
+    if (headOpen !== -1) {
+        const end = html.indexOf('>', headOpen) + 1;
+        return html.slice(0, end) + tag + html.slice(end);
+    }
+    const headClose = html.toLowerCase().lastIndexOf('</head>');
+    if (headClose !== -1) {
+        return html.slice(0, headClose) + tag + html.slice(headClose);
+    }
+    // Malformed HTML: no <head>. Prepend with a minimal head. Same pattern as widget-injector.
+    return `<head>${tag}</head>` + html;
+}
+/**
+ * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
+ * at `canonicalBase/<relativePath>`. Idempotent: existing gh-pm canonicals are
+ * replaced; user-authored canonicals are respected (skipped).
+ *
+ * Returns the count of files mutated.
+ */
+async function injectCanonicalIntoDir(versionDir, canonicalBase) {
+    const htmlFiles = await findHtmlFiles$1(versionDir);
+    if (htmlFiles.length === 0) {
+        info(`0 HTML files in ${versionDir}, no canonical injection needed`);
+        return 0;
+    }
+    let count = 0;
+    for (const file of htmlFiles) {
+        const rel = path$1.relative(versionDir, file).split(path$1.sep).join('/');
+        const canonicalUrl = `${canonicalBase.replace(/\/$/, '')}/${rel}`;
+        const tag = buildCanonicalTag(canonicalUrl);
+        const original = await promises.readFile(file, 'utf8');
+        // Remove any of our previously-injected canonicals (handles update-on-latest-change).
+        const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
+        // If the user authored their own canonical, respect it — don't inject ours.
+        const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
+        const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
+        if (next !== original) {
+            await promises.writeFile(file, next, 'utf8');
+            count++;
+        }
+    }
+    return count;
+}
+/**
+ * Inject a noindex meta tag into every HTML file in `prDir`. Idempotent
+ * (marker-gated). Used for PR preview directories so they don't get indexed
+ * even when a crawler bypasses robots.txt or the host doesn't support it.
+ *
+ * Returns the count of files newly injected.
+ */
+async function injectNoindexIntoDir(prDir) {
+    const htmlFiles = await findHtmlFiles$1(prDir);
+    if (htmlFiles.length === 0) {
+        info(`0 HTML files in ${prDir}, no noindex injection needed`);
+        return 0;
+    }
+    const tag = buildNoindexTag();
+    let count = 0;
+    for (const file of htmlFiles) {
+        const original = await promises.readFile(file, 'utf8');
+        if (original.includes(NOINDEX_MARKER))
+            continue;
+        const next = insertInHead(original, tag);
+        await promises.writeFile(file, next, 'utf8');
+        count++;
     }
     return count;
 }
@@ -32224,6 +32671,78 @@ async function injectWidgetForVersion(workdir, versionSlot, _repoMeta, customiza
         position: customization.position,
         color: customization.color,
     });
+}
+// ---- SEO / health / stats writers ------------------------------------------
+// [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
+// The pure renderers / injectors produce content; these wrappers land it on disk.
+/**
+ * Write robots.txt at the worktree root. Disallows crawlers from every PR
+ * preview directory currently in the manifest.
+ */
+async function writeRobotsTxt(workdir, manifest, siteRoot) {
+    const txt = renderRobotsTxt(manifest, siteRoot);
+    await promises.writeFile(path__namespace$1.join(workdir, 'robots.txt'), txt, 'utf8');
+}
+/**
+ * Write sitemap.xml at the worktree root. URLs point at the latest non-PR
+ * version's HTML files. If no non-PR version exists, an empty urlset is emitted.
+ */
+async function writeSitemapXml(workdir, manifest, baseUrl, lastmod) {
+    const slot = latestNonPrSlot(manifest);
+    let xml;
+    if (slot === null) {
+        xml = renderEmptySitemap();
+    }
+    else {
+        const relPaths = await findHtmlFilesRelative(path__namespace$1.join(workdir, slot));
+        xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
+    }
+    await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), xml, 'utf8');
+}
+/**
+ * Write _health.json at the worktree root. Pure projection of the manifest +
+ * deploy timestamp. Used by external uptime monitors.
+ */
+async function writeHealthJson(workdir, manifest, generatedAt) {
+    const record = renderHealth(manifest, generatedAt);
+    await promises.writeFile(path__namespace$1.join(workdir, '_health.json'), serializeHealth(record), 'utf8');
+}
+/**
+ * Write the client-side stats dashboard at _versions/stats.html. The rendered
+ * page is static HTML + inline JS that fetches versions.json at runtime.
+ */
+async function writeStatsHtml(workdir, repoMeta) {
+    const versionsDir = path__namespace$1.join(workdir, '_versions');
+    await promises.mkdir(versionsDir, { recursive: true });
+    const html = renderStatsHtml(repoMeta);
+    await promises.writeFile(path__namespace$1.join(versionsDir, 'stats.html'), html, 'utf8');
+}
+/**
+ * Inject/update canonical URLs into every non-PR version directory, pointing at
+ * the latest non-PR version's equivalent path. For PR directories, inject
+ * noindex instead. The `latestNonPrSiteBase` is the absolute URL base for the
+ * latest non-PR version (e.g., "https://example.com/v2.0.0").
+ *
+ * Data-driven: caller decides which directories to process via `nonPrSlots`
+ * and which PR directory to noindex via `currentPrSlot` (null when current
+ * deploy is non-PR).
+ */
+async function applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot) {
+    let canonicalCount = 0;
+    // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
+    //   should be empty (caller ensures); loop trivially finishes with 0.
+    if (latestNonPrSiteBase !== null) {
+        for (const slot of nonPrSlots) {
+            const versionDir = path__namespace$1.join(workdir, slot);
+            canonicalCount += await injectCanonicalIntoDir(versionDir, latestNonPrSiteBase);
+        }
+    }
+    let noindexCount = 0;
+    if (currentPrSlot !== null) {
+        const prDir = path__namespace$1.join(workdir, currentPrSlot);
+        noindexCount = await injectNoindexIntoDir(prDir);
+    }
+    return { canonicalCount, noindexCount };
 }
 
 // [LAW:one-source-of-truth] versions.json is the sole authoritative record of deployed versions (MNFST-01).
@@ -32506,6 +33025,7 @@ async function extractCommits(repoDir, currentSha, previousSha, prBaseRef = '') 
 //   the CLI adapter (src/cli.ts, Plan 05-02) both call this same function. They differ ONLY
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
+const PR_VERSION_RE = /^pr-\d+$/;
 async function deploy(config, sourceRepoDir) {
     // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
     if (config.token)
@@ -32529,6 +33049,7 @@ async function deploy(config, sourceRepoDir) {
             sha: context.sha,
             timestamp: context.timestamp,
             commits,
+            release: config.release, // undefined when not a tag or no release exists → key omitted from JSON
         };
         // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
         //   read → add new entry → remove stale entries → write. Both always run;
@@ -32559,11 +33080,31 @@ async function deploy(config, sourceRepoDir) {
             color: config.widgetColor,
         });
         info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
-        // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-        await commitAndPush(workdir, context, config.targetBranch);
-        // Compute deployed URL. Custom domain uses actual CNAME contents (not a placeholder).
+        // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
+        // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+        // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
+        //   null PR slot = zero noindex injections. No guarded skips.
         const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
         const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
+        const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
+        const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
+        const latestSlot = latestNonPrSlot(cleanedManifest);
+        const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;
+        const nonPrSlots = cleanedManifest.versions
+            .filter((v) => !PR_VERSION_RE.test(v.version))
+            .map((v) => v.version);
+        const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
+        const seoCounts = await applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot);
+        info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
+        // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
+        // Written at the worktree root. Stats dashboard lives under _versions/.
+        // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
+        await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
+        await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+        await writeHealthJson(workdir, cleanedManifest, context.timestamp);
+        await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
+        // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
+        await commitAndPush(workdir, context, config.targetBranch);
         const url = `${baseUrl}${context.basePath}`;
         return { version: context.versionSlot, url, removedVersions: config.cleanupVersions };
     }

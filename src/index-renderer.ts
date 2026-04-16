@@ -56,6 +56,11 @@ summary { cursor: pointer; color: var(--fg-muted); font-size: 13px; }
 .commits li { font-size: 13px; }
 footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-muted); font-size: 13px; }
 .empty { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; text-align: center; color: var(--fg-muted); }
+.release { margin-top: 12px; padding: 10px 12px; border-left: 3px solid var(--accent); background: rgba(9, 105, 218, 0.06); border-radius: 0 6px 6px 0; }
+.release-link { font-weight: 600; font-size: 14px; }
+.release-body { margin: 6px 0 0; font-size: 13px; color: var(--fg-muted); }
+.prerelease { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #fff3c4; color: #7a5d00; margin-left: 6px; font-weight: 500; }
+@media (prefers-color-scheme: dark) { .release { background: rgba(47, 129, 247, 0.08); } .prerelease { background: #3a2f00; color: #ffda6a; } }
 @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --bg-card: #161b22; --fg: #e6edf3; --fg-muted: #8d96a0; --border: #30363d; --accent: #2f81f7; --accent-hover: #539bf5; } }
 @media (max-width: 600px) { main { padding: 16px 12px; } h1 { font-size: 22px; } h2 { font-size: 18px; } .version { padding: 16px 16px; } .version-head { flex-direction: column; align-items: flex-start; gap: 4px; } }`;
 
@@ -76,6 +81,24 @@ function renderCommitDetailsBlock(commits: CommitInfo[]): string {
   return commits.length === 0
     ? ''
     : `<details><summary>${commits.length} ${word}</summary><ul class="commits">${rows}</ul></details>`;
+}
+
+function renderReleaseBlock(entry: ManifestEntry): string {
+  // [LAW:dataflow-not-control-flow] Absent release = empty string; no guarded skip.
+  if (!entry.release) return '';
+  const { name, url, prerelease, body } = entry.release;
+  const tag = prerelease ? ' <span class="prerelease">pre-release</span>' : '';
+  // Truncate release body to first 240 chars as plain text for the summary.
+  const bodyPreview = body.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const hasMore = body.length > 240;
+  return (
+    `<div class="release">` +
+    `<a href="${escapeHtml(url)}" class="release-link">\u{1F3F7} ${escapeHtml(name)}${tag}</a>` +
+    (bodyPreview.length > 0
+      ? `<p class="release-body">${escapeHtml(bodyPreview)}${hasMore ? '\u2026' : ''}</p>`
+      : '') +
+    `</div>`
+  );
 }
 
 function renderVersionCard(entry: ManifestEntry, repoMeta: RepoMeta): string {
@@ -100,6 +123,7 @@ function renderVersionCard(entry: ManifestEntry, repoMeta: RepoMeta): string {
     `<span>\u00b7</span>` +
     `<a href="${viewUrl}">View \u2192</a>` +
     `</p>` +
+    renderReleaseBlock(entry) +
     renderCommitDetailsBlock(commits) +
     `</article>`
   );

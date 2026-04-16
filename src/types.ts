@@ -27,6 +27,9 @@ export interface DeployConfig {
   // origin/<prBaseRef>..HEAD to capture only the PR's own commits. When empty,
   // the extractor uses previousSha..currentSha (delta from last deployment).
   prBaseRef: string;
+  // GitHub Release info for tag deploys. Undefined when not a tag or no release exists.
+  // Populated by the adapter (index.ts) via the GitHub API before deploy() runs.
+  release?: ReleaseInfo;
   // Version slots to remove during this deploy (e.g., ["pr-42", "pr-17"]).
   // Populated by the adapter; empty array means no cleanup. The pipeline always
   // runs the cleanup stage — variability lives in the data, not in whether it runs.
@@ -53,6 +56,15 @@ export interface CommitInfo {
   timestamp: string; // ISO 8601 (%aI)
 }
 
+/** GitHub Release metadata attached to a tagged deployment (optional). */
+export interface ReleaseInfo {
+  name: string;          // release display name (may differ from tag)
+  body: string;          // release notes body (markdown)
+  url: string;           // release page URL
+  published_at: string;  // ISO 8601
+  prerelease: boolean;
+}
+
 /** A single version entry in the manifest */
 export interface ManifestEntry {
   version: string; // sanitized directory name
@@ -60,6 +72,7 @@ export interface ManifestEntry {
   sha: string; // commit SHA at deploy time
   timestamp: string; // ISO 8601 deploy timestamp
   commits?: CommitInfo[]; // optional on read (schema 1), populated on write (schema 2)
+  release?: ReleaseInfo; // present when the ref is a tag with a GitHub Release
 }
 
 /** The versions.json top-level structure */
