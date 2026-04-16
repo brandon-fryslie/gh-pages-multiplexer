@@ -353,6 +353,27 @@ No conditional stages. No `if PR ...` branches. Stages that aren't relevant are 
 
 ---
 
+## Why the `gh-pages` branch instead of the newer Actions-based Pages deployment?
+
+GitHub Pages supports two deployment sources: **branch source** (serve files from a branch like `gh-pages`) and **Actions source** (upload a site artifact via `actions/deploy-pages`). This tool uses branch source deliberately — it's the right fit for the problem, not legacy inertia.
+
+**The fundamental mismatch**: `actions/deploy-pages` is a *total-replacement* model. Each deploy uploads one artifact that replaces the entire live site atomically. There's no concept of "merge this version into existing content" — every publish wipes and replaces.
+
+This tool's whole purpose is **accumulation**: `v1/`, `v2/`, `pr-42/`, `main/`, `feature-foo/` all coexist on the same Pages site and persist across deploys. That maps naturally to branch source semantics (commits are additive, git provides concurrency control and history) and fights Actions source semantics (every deploy replaces everything).
+
+**What it would cost to switch.** To use `actions/deploy-pages`, every deploy would need to: (1) download the previous artifact, (2) extract it, (3) merge the new version subdir + updated manifest, (4) upload the *entire accumulated site* as a new artifact. Problems:
+
+- **Size grows unboundedly** — after 50 versions, each deploy re-uploads gigabytes. Branch model only commits the diff.
+- **No atomic concurrency** — branch model uses `git fetch → rebase → push` to handle races. Actions source has no equivalent; parallel deploys would race and one would lose.
+- **State has to live somewhere** — the branch *is* the state store. Without it you'd either keep the branch anyway (just not serve from it) or trust the previous artifact is always retrievable (it isn't — artifacts have retention policies).
+- **No git history as audit trail** — today `git log gh-pages` tells you exactly what was deployed, when, and by whom.
+
+**What Actions source does give you.** For single-version sites, real advantages: deploy status integrated into GitHub's Deployments UI, tighter security (branch source lets anyone with push access to `gh-pages` publish; Actions source is gated by workflow permissions), cleaner separation between source and published artifacts. Those benefits are already well-served by using `actions/deploy-pages` directly — no multiplexer needed.
+
+**Bottom line**: pick the infrastructure whose native semantics match your problem. Branch source's "accumulative commits" invariant lines up with this tool's "versions coexist" invariant. Forcing accumulation onto a replacement-oriented API would add complexity without solving anything this tool's users actually need.
+
+---
+
 ## Development
 
 ```bash
