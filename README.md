@@ -379,9 +379,9 @@ This tool's whole purpose is **accumulation**: `v1/`, `v2/`, `pr-42/`, `main/`, 
 ```bash
 git clone https://github.com/brandon-fryslie/gh-pages-multiplexer
 cd gh-pages-multiplexer
-npm install
-npm test              # 165 tests across unit + E2E pipeline fixtures
-npm run build         # produces dist/index.js (Action) and dist/cli.js (CLI)
+pnpm install
+pnpm test             # 165 tests across unit + E2E pipeline fixtures
+pnpm run build        # produces dist/index.js (Action) and dist/cli.js (CLI)
 ```
 
 Tests use real git fixtures and real filesystem operations — no mocks of git or fs. Build is a Rollup bundle; the `dist/` directory is checked in so the Action can be consumed via `uses: owner/repo@v1` without a build step on the consumer side.
