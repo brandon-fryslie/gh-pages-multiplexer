@@ -22,7 +22,7 @@ import { readFile } from 'node:fs/promises';
 describe('githubRemote', () => {
   it('keeps the token out of the URL and sends it only as github.com basic auth, replacing any other credential', () => {
     const remote = githubRemote('ghs_token123', 'owner/repo');
-    expect(remote.url).toBe('https://github.com/owner/repo.git');
+    expect(remote.url).toBe('https://x-access-token@github.com/owner/repo.git');
     const basic = Buffer.from('x-access-token:ghs_token123').toString('base64');
     expect(remote.config).toEqual([
       ['credential.helper', ''],

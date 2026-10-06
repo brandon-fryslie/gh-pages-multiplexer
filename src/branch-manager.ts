@@ -46,11 +46,14 @@ const DEPLOY_IDENTITY: Record<string, string> = {
  * scoped to github.com. The empty entries first reset what git has already read -- a header
  * actions/checkout persisted, a credential helper -- so this token is the only credential sent, and
  * a rejected token fails instead of falling back to (or being stored in) the user's own credentials.
+ * The URL names the x-access-token user (not secret) so a `url.*.insteadOf`/`pushInsteadOf` rule for
+ * https://github.com/ in the user's config -- commonly a rewrite to SSH -- cannot redirect the deploy
+ * to another transport and credential.
  */
 export function githubRemote(token: string, repo: string): Remote {
   const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
   return {
-    url: `https://github.com/${repo}.git`,
+    url: `https://x-access-token@github.com/${repo}.git`,
     config: [
       ['credential.helper', ''],
       ['http.https://github.com/.extraheader', ''],

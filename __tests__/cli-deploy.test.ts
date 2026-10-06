@@ -1,7 +1,7 @@
 // The CLI deploys from the user's own clone, outside GitHub Actions: nothing masks its output and
 // the repo's config is the user's. A real deploy through main() must print no token and leave
 // .git/config, its refs and FETCH_HEAD untouched, even for an owner who exports their own git identity
-// in the environment. The GitHub URL is routed to a local bare repository by a url.<base>.insteadOf
+// and rewrites github.com URLs to SSH. The GitHub URL is routed to a local bare repository by a url.<base>.insteadOf
 // passed in the environment, so the remote URL the CLI builds is used as-is; GIT_TRACE records the
 // argv of every git process, which is what any local user can read in the process table.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -44,12 +44,15 @@ beforeEach(async () => {
   process.env.GIT_AUTHOR_NAME = 'Exported Owner';
   process.env.GIT_COMMITTER_EMAIL = 'exported@example.com';
   process.env.GITHUB_SHA = await git(clone, 'rev-parse', 'HEAD');
-  // pushInsteadOf too: it outranks insteadOf for pushes, and a developer's global config may carry one.
-  process.env.GIT_CONFIG_COUNT = '2';
+  // Entries 1-2 are a common developer setup -- every github.com HTTPS URL rewritten to SSH. Were the
+  // deploy URL to match them, git would leave for an unreachable SSH host and the deploy would fail.
+  process.env.GIT_CONFIG_COUNT = '3';
   process.env.GIT_CONFIG_KEY_0 = `url.${remote}.insteadOf`;
-  process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/owner/repo.git';
-  process.env.GIT_CONFIG_KEY_1 = `url.${remote}.pushInsteadOf`;
-  process.env.GIT_CONFIG_VALUE_1 = 'https://github.com/owner/repo.git';
+  process.env.GIT_CONFIG_VALUE_0 = 'https://x-access-token@github.com/owner/repo.git';
+  process.env.GIT_CONFIG_KEY_1 = 'url.ssh://git@unreachable.invalid/.insteadOf';
+  process.env.GIT_CONFIG_VALUE_1 = 'https://github.com/';
+  process.env.GIT_CONFIG_KEY_2 = 'url.ssh://git@unreachable.invalid/.pushInsteadOf';
+  process.env.GIT_CONFIG_VALUE_2 = 'https://github.com/';
 
   vi.spyOn(process, 'cwd').mockReturnValue(clone);
   output = [];
@@ -60,7 +63,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  for (const key of ['GITHUB_SHA', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_TRACE', 'GIT_AUTHOR_NAME', 'GIT_COMMITTER_EMAIL']) {
+  for (const key of ['GITHUB_SHA', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1', 'GIT_CONFIG_KEY_2', 'GIT_CONFIG_VALUE_2', 'GIT_TRACE', 'GIT_AUTHOR_NAME', 'GIT_COMMITTER_EMAIL']) {
     delete process.env[key];
   }
   await rm(root, { recursive: true, force: true });
@@ -86,7 +89,7 @@ describe('cli deploy against a real remote', () => {
     expect(await git(clone, 'for-each-ref')).toBe(refsBefore);
     expect(existsSync(path.join(clone, '.git', 'FETCH_HEAD'))).toBe(false);
     const traced = await readFile(trace, 'utf8');
-    expect(traced).toContain('git push --porcelain https://github.com/owner/repo.git');
+    expect(traced).toContain('git push --porcelain https://x-access-token@github.com/owner/repo.git');
     expect(traced).not.toContain(TOKEN);
     expect(traced).not.toContain(Buffer.from(`x-access-token:${TOKEN}`).toString('base64'));
     const bot = 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>';
