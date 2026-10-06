@@ -19,6 +19,7 @@ vi.mock('@actions/exec', async (importOriginal) => {
   return { ...real, getExecOutput: vi.fn(real.getExecOutput) };
 });
 
+import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { deploy } from '../src/deploy.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
@@ -188,6 +189,8 @@ describe('concurrent deploys', () => {
     });
 
     expect(await deploy(config, source)).toMatchObject({ outcome: 'pushed', attempts: races + 1 });
+    const tip = await git(root, '--git-dir', remote, 'rev-parse', `${TARGET}^`);
+    expect(vi.mocked(core.info)).toHaveBeenCalledWith(`Publish attempt ${races + 1} on ${tip}: pushed`);
     const manifest = await expectDerivedFilesMatchManifest();
     expect(manifest.versions.map((v) => v.version).sort()).toEqual(['v0.9.0', 'v1.0.0']);
   }, 30_000);
