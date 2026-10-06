@@ -65,6 +65,9 @@ async function run(): Promise<void> {
   // [LAW:one-source-of-truth] D-10: git log runs against the source repo, never the gh-pages worktree.
   const sourceRepoDir = process.cwd();
   const config = parseInputs();
+  // Actions-only: the runner masks the token in every later log line. Outside Actions this would
+  // print the token itself (::add-mask::<token>), so it lives in this adapter, not in deploy().
+  core.setSecret(config.token);
   core.info(`Deploying from ${config.sourceDir} to ${config.targetBranch}`);
   core.info(`Ref: ${config.ref}, Repo: ${config.repo}`);
 

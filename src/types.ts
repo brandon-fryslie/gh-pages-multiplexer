@@ -43,7 +43,7 @@ export interface DeployConfig {
 /** The local source checkout a deploy runs from, and the remote it publishes to. */
 export interface SourceRepo {
   dir: string; // git working directory of the source repo (commit metadata is read here)
-  remoteUrl: string; // URL `origin` is set to; the target branch lives on this remote
+  remoteUrl: string; // authenticated URL of the remote the target branch lives on; passed per git command
 }
 
 /** Context derived from the git ref */

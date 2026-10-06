@@ -1,8 +1,11 @@
 // [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
 //   commit -> push pipeline. Whether the target branch exists is *data* -- the commit's base
 //   (parents + tree) -- never a condition that picks a different sequence of git operations.
-// [LAW:single-enforcer] Git identity, remote URL configuration (with token), and the meaning of every
-//   git exit code live in exactly one place -- this module. No other code talks to `git` directly.
+// [LAW:single-enforcer] Git identity, the authenticated remote URL, and the meaning of every git exit
+//   code live in exactly one place -- this module. No other code talks to `git` directly.
+// [LAW:effects-at-boundaries] Deploy never writes the source repo's config: the remote URL is an
+//   argument to ls-remote/fetch/push and the commit identity a -c on commit-tree, so a CLI run in the
+//   user's own clone leaves their origin and identity exactly as it found them.
 // [LAW:no-silent-failure] Every git invocation either succeeds or throws. The only non-zero exits
 //   that are not errors are the ones a command defines as an answer (ls-remote --exit-code, a
 //   stale-tip push rejection), and each is mapped to a named outcome below.
@@ -38,33 +41,33 @@ function gitFailure(args: string[], out: exec.ExecOutput): Error {
 }
 
 /**
+ * The one way git is run. Silent: @actions/exec otherwise echoes every command line to stdout, and
+ * an authenticated URL's token with it -- outside Actions nothing masks that line.
+ */
+function runGit(cwd: string, args: string[], input = ''): Promise<exec.ExecOutput> {
+  return exec.getExecOutput('git', args, { cwd, ignoreReturnCode: true, silent: true, input: Buffer.from(input) });
+}
+
+/**
  * Run git in `cwd`. `answers` maps each exit code the command defines as an answer to its
  * outcome (ls-remote --exit-code: 2 = "no such ref"); any other exit code throws with git's stderr.
  */
 async function gitAnswer<T>(cwd: string, args: string[], answers: Record<number, T>): Promise<T> {
-  const out = await exec.getExecOutput('git', args, { cwd, ignoreReturnCode: true });
+  const out = await runGit(cwd, args);
   if (!(out.exitCode in answers)) throw gitFailure(args, out);
   return answers[out.exitCode];
 }
 
 /** Run git in `cwd` and return its trimmed stdout; any non-zero exit throws. */
 async function git(cwd: string, args: string[], input = ''): Promise<string> {
-  const out = await exec.getExecOutput('git', args, { cwd, ignoreReturnCode: true, input: Buffer.from(input) });
+  const out = await runGit(cwd, args, input);
   if (out.exitCode !== 0) throw gitFailure(args, out);
   return out.stdout.trim();
 }
 
 /** Authenticated HTTPS remote for a GitHub `owner/repo`. */
 export function githubRemoteUrl(token: string, repo: string): string {
-  // Actions log masking + core.setSecret on token mitigates T-01-08.
   return `https://x-access-token:${token}@github.com/${repo}.git`;
-}
-
-/** Point the source repo's `origin` at the deploy remote and set the commit identity. Once per deploy. */
-export async function configureSourceRepo(source: SourceRepo): Promise<void> {
-  await git(source.dir, ['config', 'user.name', GIT_USER_NAME]);
-  await git(source.dir, ['config', 'user.email', GIT_USER_EMAIL]);
-  await git(source.dir, ['remote', 'set-url', 'origin', source.remoteUrl]);
 }
 
 /**
@@ -83,22 +86,21 @@ export interface Worktree {
   base: CommitBase;
 }
 
-async function resolveBase(repoDir: string, targetBranch: string): Promise<CommitBase> {
+async function resolveBase(source: SourceRepo, targetBranch: string): Promise<CommitBase> {
   const ref = `refs/heads/${targetBranch}`;
   // ls-remote --exit-code answers "does the branch exist" with exit 2 for "no". A network or
   // auth failure is a different exit and throws, instead of masquerading as a first deploy.
-  const exists = await gitAnswer(repoDir, ['ls-remote', '--exit-code', 'origin', ref], { 0: true, 2: false });
+  const exists = await gitAnswer(source.dir, ['ls-remote', '--exit-code', source.remoteUrl, ref], { 0: true, 2: false });
   if (!exists) {
     core.info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
-    return { parents: [], tree: await git(repoDir, ['mktree']) };
+    return { parents: [], tree: await git(source.dir, ['mktree']) };
   }
   // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
   // metadata-extractor's `git log` over ranges that predate gh-pages history.
-  // Explicit refspec so the tracking ref updates regardless of the remote's fetch config.
-  const tracking = `refs/remotes/origin/${targetBranch}`;
-  await git(repoDir, ['fetch', 'origin', `+${ref}:${tracking}`]);
-  const tip = await git(repoDir, ['rev-parse', '--verify', `${tracking}^{commit}`]);
-  return { parents: [tip], tree: await git(repoDir, ['rev-parse', `${tip}^{tree}`]) };
+  // No destination ref: the tip is read from FETCH_HEAD, so no ref in the source repo is written.
+  await git(source.dir, ['fetch', source.remoteUrl, ref]);
+  const tip = await git(source.dir, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']);
+  return { parents: [tip], tree: await git(source.dir, ['rev-parse', `${tip}^{tree}`]) };
 }
 
 /**
@@ -112,7 +114,7 @@ export async function withWorktree<T>(
   targetBranch: string,
   use: (worktree: Worktree) => Promise<T>,
 ): Promise<T> {
-  const base = await resolveBase(source.dir, targetBranch);
+  const base = await resolveBase(source, targetBranch);
   const worktree: Worktree = { path: path.join(os.tmpdir(), `gh-pages-${randomUUID()}`), base };
   // --no-checkout leaves the index empty; read-tree then makes index and files exactly the base tree.
   await git(source.dir, ['worktree', 'add', '--detach', '--no-checkout', worktree.path, 'HEAD']);
@@ -163,6 +165,7 @@ export function staleTipRejection(porcelain: string): string | null {
 export async function commitAndPush(
   worktree: Worktree,
   context: DeploymentContext,
+  remoteUrl: string,
   targetBranch: string,
 ): Promise<PushOutcome> {
   const wd = worktree.path;
@@ -171,10 +174,11 @@ export async function commitAndPush(
   if (tree === worktree.base.tree) return { kind: 'unchanged' };
 
   const parentArgs = worktree.base.parents.flatMap((p) => ['-p', p]);
-  const commit = await git(wd, ['commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`]);
+  const identity = ['-c', `user.name=${GIT_USER_NAME}`, '-c', `user.email=${GIT_USER_EMAIL}`];
+  const commit = await git(wd, [...identity, 'commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`]);
 
-  const args = ['push', '--porcelain', 'origin', `${commit}:refs/heads/${targetBranch}`];
-  const push = await exec.getExecOutput('git', args, { cwd: wd, ignoreReturnCode: true });
+  const args = ['push', '--porcelain', remoteUrl, `${commit}:refs/heads/${targetBranch}`];
+  const push = await runGit(wd, args);
   if (push.exitCode === 0) return { kind: 'pushed' };
   const rejection = staleTipRejection(push.stdout);
   if (rejection !== null) return { kind: 'stale', rejection };
