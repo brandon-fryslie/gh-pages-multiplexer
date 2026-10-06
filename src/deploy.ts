@@ -12,7 +12,6 @@ import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
-  configureSourceRepo,
   withWorktree,
   commitAndPush,
   readCnameFile,
@@ -43,18 +42,13 @@ const PUBLISH_ATTEMPTS = 5;
 //   the tip has not moved. A moved tip means rebuild from the new tip -- never rebase, because a
 //   rebased commit carries an index/sitemap/health rendered from a manifest that no longer exists.
 export async function deploy(config: DeployConfig, source: SourceRepo): Promise<DeployResult> {
-  // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
-  if (config.token) core.setSecret(config.token);
-
-  await configureSourceRepo(source);
-
   let lastRejection = '';
   for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
     // Stage 1: a git worktree at the current remote tip, removed when the attempt ends.
     const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
       const rendered = await renderDeployment(worktree.path, config, source.dir);
       // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-      const published = await commitAndPush(worktree, rendered.context, config.targetBranch);
+      const published = await commitAndPush(worktree, rendered.context, source.remote, config.targetBranch);
       return { rendered, published };
     });
     core.info(`Publish attempt ${attempt}: ${published.kind}`);

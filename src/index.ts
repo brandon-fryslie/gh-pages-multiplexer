@@ -11,7 +11,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
-import { githubRemoteUrl } from './branch-manager.js';
+import { githubRemote } from './branch-manager.js';
 import { upsertPreviewComment } from './pr-commenter.js';
 import { resolveCleanupVersions } from './pr-cleanup.js';
 import { fetchReleaseForRef } from './release-fetcher.js';
@@ -47,7 +47,7 @@ export function parseInputs(): DeployConfig {
     refPatterns,
     basePathMode,
     basePathPrefix: core.getInput('base-path-prefix'),
-    token: core.getInput('token'),
+    token: core.getInput('token', { required: true }),
     repo: process.env.GITHUB_REPOSITORY ?? '',
     ref: process.env.GITHUB_REF ?? '',
     version: core.getInput('version'),
@@ -65,6 +65,9 @@ async function run(): Promise<void> {
   // [LAW:one-source-of-truth] D-10: git log runs against the source repo, never the gh-pages worktree.
   const sourceRepoDir = process.cwd();
   const config = parseInputs();
+  // Actions-only: the runner masks the token in every later log line. Outside Actions this would
+  // print the token itself (::add-mask::<token>), so it lives in this adapter, not in deploy().
+  core.setSecret(config.token);
   core.info(`Deploying from ${config.sourceDir} to ${config.targetBranch}`);
   core.info(`Ref: ${config.ref}, Repo: ${config.repo}`);
 
@@ -97,7 +100,7 @@ async function run(): Promise<void> {
 
   const result = await deploy(config, {
     dir: sourceRepoDir,
-    remoteUrl: githubRemoteUrl(config.token, config.repo),
+    remote: githubRemote(config.token, config.repo),
   });
 
   core.setOutput('version', result.version);
