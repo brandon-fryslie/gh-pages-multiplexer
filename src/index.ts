@@ -11,6 +11,7 @@ import * as core from '@actions/core';
 import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
+import { githubRemoteUrl } from './branch-manager.js';
 import { upsertPreviewComment } from './pr-commenter.js';
 import { resolveCleanupVersions } from './pr-cleanup.js';
 import { fetchReleaseForRef } from './release-fetcher.js';
@@ -94,11 +95,14 @@ async function run(): Promise<void> {
     }
   }
 
-  const result = await deploy(config, sourceRepoDir);
+  const result = await deploy(config, {
+    dir: sourceRepoDir,
+    remoteUrl: githubRemoteUrl(config.token, config.repo),
+  });
 
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
-  core.info(`Deployed ${result.version} to ${result.url}`);
+  core.info(`Deployed ${result.version} to ${result.url} (${result.attempts} publish attempt(s))`);
   if (result.removedVersions.length > 0) {
     core.info(`Cleaned up ${result.removedVersions.length} stale PR version(s): ${result.removedVersions.join(', ')}`);
   }

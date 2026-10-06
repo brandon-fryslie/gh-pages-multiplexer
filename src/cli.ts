@@ -9,6 +9,7 @@
 import { parseArgs } from 'node:util';
 import type { DeployConfig } from './types.js';
 import { deploy } from './deploy.js';
+import { githubRemoteUrl } from './branch-manager.js';
 import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
 const VERSION = '0.0.0'; // Synced with package.json version; bump together.
@@ -168,8 +169,11 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
   };
 
   try {
-    const result = await deploy(config, process.cwd());
-    process.stdout.write(`Deployed ${result.version} to ${result.url}\n`);
+    const result = await deploy(config, {
+      dir: process.cwd(),
+      remoteUrl: githubRemoteUrl(config.token, config.repo),
+    });
+    process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.attempts} publish attempt(s))\n`);
     return 0;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

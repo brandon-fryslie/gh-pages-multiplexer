@@ -19,7 +19,7 @@ Every deployed page gets a small floating nav widget (Shadow-DOM-isolated) so us
 ## Features
 
 - **Non-destructive multi-version deploys** — preserves all previous version subdirectories
-- **Concurrent-run safety** — fetch-rebase-push retry handles races between simultaneous workflow runs
+- **Concurrent-run safety** — a deploy that loses a push race rebuilds on the winner's commit and retries, so simultaneous runs all land
 - **Auto-generated index page** — responsive timeline with light/dark mode, commit history per version, zero JS
 - **Floating navigation widget** — Shadow DOM isolation, can't be broken by host-page CSS
 - **Git metadata capture** — commit SHA / author / message / timestamp stored in the manifest per deploy
@@ -307,7 +307,7 @@ concurrency:
   cancel-in-progress: false
 ```
 
-If two runs slip through anyway (or you use the CLI from multiple machines), the tool handles it via **fetch-rebase-push retry**: on a non-fast-forward push, it fetches the latest `gh-pages`, re-applies the worktree changes, and retries. No corruption, no lost versions.
+If two runs slip through anyway (or you use the CLI from multiple machines), the tool handles it with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip, up to 5 attempts. Any other git failure fails the deploy. The log line `Deployed <version> to <url> (N publish attempt(s))` shows how many attempts it took.
 
 ---
 
@@ -344,7 +344,7 @@ renderIndexHtml         (regenerate root index.html from manifest)
     ↓
 writeManifest           (update versions.json atomically)
     ↓
-commitAndPush           (one atomic commit, fetch-rebase on non-ff)
+commitAndPush           (one atomic commit; on a stale tip, rebuild from prepareBranch)
     ↓
 upsertPreviewComment    (only in PR context, Action only)
 ```
@@ -364,7 +364,7 @@ This tool's whole purpose is **accumulation**: `v1/`, `v2/`, `pr-42/`, `main/`, 
 **What it would cost to switch.** To use `actions/deploy-pages`, every deploy would need to: (1) download the previous artifact, (2) extract it, (3) merge the new version subdir + updated manifest, (4) upload the *entire accumulated site* as a new artifact. Problems:
 
 - **Size grows unboundedly** — after 50 versions, each deploy re-uploads gigabytes. Branch model only commits the diff.
-- **No atomic concurrency** — branch model uses `git fetch → rebase → push` to handle races. Actions source has no equivalent; parallel deploys would race and one would lose.
+- **No atomic concurrency** — branch model uses a non-force push as a compare-and-swap on the branch tip, rebuilding and retrying on a lost race. Actions source has no equivalent; parallel deploys would race and one would lose.
 - **State has to live somewhere** — the branch *is* the state store. Without it you'd either keep the branch anyway (just not serve from it) or trust the previous artifact is always retrievable (it isn't — artifacts have retention policies).
 - **No git history as audit trail** — today `git log gh-pages` tells you exactly what was deployed, when, and by whom.
 
