@@ -19,6 +19,7 @@ vi.mock('@actions/exec', async (importOriginal) => {
   return { ...real, getExecOutput: vi.fn(real.getExecOutput) };
 });
 
+import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import { deploy } from '../src/deploy.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
@@ -158,6 +159,42 @@ describe('concurrent deploys', () => {
     expect(manifest.versions.map((v) => v.version).sort()).toEqual(['pr-7', 'v1.0.0']);
   });
 
+  it('a burst of simultaneous deploys all land, each within as many attempts as there are deploys', async () => {
+    const slots = ['v1.0.0', 'v2.0.0', 'v3.0.0', 'v4.0.0', 'v5.0.0', 'v6.0.0', 'v7.0.0'];
+    const runs = await Promise.all(slots.map(async (s) => [await configFor(s), await sourceClone(s)] as const));
+    holdFirstPushes(slots.length);
+    const results = await Promise.all(runs.map(([config, source]) => deploy(config, source)));
+
+    // Every loss is another deploy's win, so none of N simultaneous deploys needs more than N attempts.
+    for (const r of results) expect(r.attempts).toBeLessThanOrEqual(slots.length);
+    const manifest = await expectDerivedFilesMatchManifest();
+    expect(manifest.versions.map((v) => v.version).sort()).toEqual(slots);
+  }, 30_000);
+
+  it('keeps rebuilding for as long as other deploys keep moving the tip', async () => {
+    await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
+    const config = await configFor('v1.0.0');
+    const source = await sourceClone('a');
+    // Another deploy publishes just before each of this one's first 8 pushes: more races than any
+    // fixed attempt count would have allowed.
+    const races = 8;
+    let pushes = 0;
+    getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
+      if (args?.[0] === 'push' && pushes++ < races) {
+        const tip = await git(root, '--git-dir', remote, 'rev-parse', TARGET);
+        const moved = await git(root, '--git-dir', remote, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'other deploy');
+        await git(root, '--git-dir', remote, 'update-ref', `refs/heads/${TARGET}`, moved);
+      }
+      return realGetExecOutput(cmd, args, opts);
+    });
+
+    expect(await deploy(config, source)).toMatchObject({ outcome: 'pushed', attempts: races + 1 });
+    const tip = await git(root, '--git-dir', remote, 'rev-parse', `${TARGET}^`);
+    expect(vi.mocked(core.info)).toHaveBeenCalledWith(`Publish attempt ${races + 1} on ${tip}: pushed`);
+    const manifest = await expectDerivedFilesMatchManifest();
+    expect(manifest.versions.map((v) => v.version).sort()).toEqual(['v0.9.0', 'v1.0.0']);
+  }, 30_000);
+
   it('fails loudly when the push fails for any reason other than a moved tip', async () => {
     const config = await configFor('v1.0.0');
     // A pre-receive hook that declines everything: a rejection that retrying cannot fix.
@@ -180,18 +217,25 @@ describe('concurrent deploys', () => {
     await expect(deploy(config, source)).rejects.toThrow(/git ls-remote .* failed/);
   });
 
-  it('gives up after every attempt loses the race, naming the last rejection', async () => {
+  it('fails on the next attempt when a stale rejection left the tip where it was, naming the tip and the rejection', async () => {
+    await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
+    const tip = await git(root, '--git-dir', remote, 'rev-parse', TARGET);
     const config = await configFor('v1.0.0');
-    const rejection = `!\tdeadbeef:refs/heads/${TARGET}\t[rejected] (fetch first)`;
-    getExecOutputMock.mockImplementation(async (cmd, args, opts) =>
-      args?.[0] === 'push'
-        ? { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' }
-        : realGetExecOutput(cmd, args, opts),
-    );
+    const source = await sourceClone('a');
+    // The remote reports a lost race, but nothing published: e.g. a pushInsteadOf rewrite sends the
+    // push somewhere other than where ls-remote looks.
+    const rejection = `!\tdeadbeef:refs/heads/${TARGET}\t[rejected] (non-fast-forward)`;
+    let pushes = 0;
+    getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
+      if (args?.[0] !== 'push') return realGetExecOutput(cmd, args, opts);
+      pushes++;
+      return { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' };
+    });
 
-    await expect(deploy(config, await sourceClone('a'))).rejects.toThrow(
-      `the branch moved during each of 5 attempts (last rejection: ${rejection})`,
+    await expect(deploy(config, source)).rejects.toThrow(
+      `attempt 1 was rejected as stale (${rejection}) but the remote tip is still ${tip}, the commit it was built on`,
     );
+    expect(pushes).toBe(1);
   });
 
   it('first deploy creates the branch on the remote without touching local branches or look-alike refs', async () => {

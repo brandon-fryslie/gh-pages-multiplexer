@@ -32,26 +32,35 @@ import { latestNonPrSlot } from './sitemap-generator.js';
 
 const PR_VERSION_RE = /^pr-\d+$/;
 
-// Each attempt loses only to a deploy that pushed while it was rendering, so this bounds how
-// many concurrent deploys one run can lose to before giving up loudly.
-const PUBLISH_ATTEMPTS = 5;
-
 // [LAW:no-ambient-temporal-coupling] Optimistic concurrency: the remote tip is the one owner of
 //   ordering. Every attempt renders the whole deployment (manifest + every derived file) on a fresh
 //   worktree at the current tip and publishes with a non-force push, which the remote accepts only if
 //   the tip has not moved. A moved tip means rebuild from the new tip -- never rebase, because a
 //   rebased commit carries an index/sitemap/health rendered from a manifest that no longer exists.
+// A stale rejection is a lost race only if the next probe finds a new tip: then another deploy
+//   published, so a burst of N simultaneous deploys drains within N attempts each and no attempt
+//   count or deadline is needed; the job runner's timeout owns how long a deploy may run. A rejection
+//   whose tip never moved means the push and the probe disagree about the remote, and retrying
+//   cannot fix that.
 export async function deploy(config: DeployConfig, source: SourceRepo): Promise<DeployResult> {
-  let lastRejection = '';
-  for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
+  let lostOn: { tip: string; rejection: string } | null = null;
+  for (let attempt = 1; ; attempt++) {
     // Stage 1: a git worktree at the current remote tip, removed when the attempt ends.
-    const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
+    const { tip, rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
+      const tip = worktree.base.parents[0] ?? '(no branch)';
+      if (lostOn?.tip === tip) {
+        throw new Error(
+          `Failed to publish to ${config.targetBranch}: attempt ${attempt - 1} was rejected as stale ` +
+            `(${lostOn.rejection.trim()}) but the remote tip is still ${tip}, the commit it was built on. ` +
+            `The push and the ls-remote probe disagree about the remote; check for a url.*.pushInsteadOf rewrite.`,
+        );
+      }
       const rendered = await renderDeployment(worktree.path, config, source.dir);
       // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
       const published = await commitAndPush(worktree, rendered.context, source.remote, config.targetBranch);
-      return { rendered, published };
+      return { tip, rendered, published };
     });
-    core.info(`Publish attempt ${attempt}: ${published.kind}`);
+    core.info(`Publish attempt ${attempt} on ${tip}: ${published.kind}`);
     if (published.kind !== 'stale') {
       return {
         version: rendered.context.versionSlot,
@@ -61,13 +70,9 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
         attempts: attempt,
       };
     }
-    lastRejection = published.rejection;
+    lostOn = { tip, rejection: published.rejection };
     core.warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
   }
-  throw new Error(
-    `Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts ` +
-      `(last rejection: ${lastRejection.trim()})`,
-  );
 }
 
 /**
