@@ -97,5 +97,6 @@ export interface DeployResult {
   version: string;
   url: string;
   removedVersions: string[];  // version slots removed during cleanup
+  outcome: 'pushed' | 'unchanged';  // whether the deploy published a commit or matched the tip already
   attempts: number;  // publish attempts; >1 means a concurrent deploy moved the tip and we rebuilt
 }

@@ -102,7 +102,7 @@ async function run(): Promise<void> {
 
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
-  core.info(`Deployed ${result.version} to ${result.url} (${result.attempts} publish attempt(s))`);
+  core.info(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s))`);
   if (result.removedVersions.length > 0) {
     core.info(`Cleaned up ${result.removedVersions.length} stale PR version(s): ${result.removedVersions.join(', ')}`);
   }

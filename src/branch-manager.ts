@@ -1,16 +1,17 @@
-// [LAW:dataflow-not-control-flow] prepareBranch always runs the same configure -> probe -> worktree-add
-//   pipeline. Whether the target branch exists is *data* (the ls-remote outcome) that picks which
-//   worktree-add variant runs, not a condition that skips operations.
+// [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
+//   commit -> push pipeline. Whether the target branch exists is *data* -- the commit's base
+//   (parents + tree) -- never a condition that picks a different sequence of git operations.
 // [LAW:single-enforcer] Git identity, remote URL configuration (with token), and the meaning of every
 //   git exit code live in exactly one place -- this module. No other code talks to `git` directly.
 // [LAW:no-silent-failure] Every git invocation either succeeds or throws. The only non-zero exits
-//   that are not errors are the ones a command defines as an answer (diff --quiet, ls-remote
-//   --exit-code, a stale-tip push rejection), and each is mapped to a named outcome below.
+//   that are not errors are the ones a command defines as an answer (ls-remote --exit-code, a
+//   stale-tip push rejection), and each is mapped to a named outcome below.
 import * as exec from '@actions/exec';
 import * as core from '@actions/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import type { DeploymentContext, Manifest, SourceRepo } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
@@ -30,21 +31,27 @@ import { autoNamespace } from './storage-wrapper.js';
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
 
+/** Error text for a failed git command; the credential in an authenticated URL is redacted. */
+function gitFailure(args: string[], out: exec.ExecOutput): Error {
+  const message = `git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`;
+  return new Error(message.replace(/\/\/[^/@\s]+@/g, '//***@'));
+}
+
 /**
  * Run git in `cwd`. `answers` maps each exit code the command defines as an answer to its
- * outcome (diff --quiet: 1 = "has changes"); any other exit code throws with git's stderr.
+ * outcome (ls-remote --exit-code: 2 = "no such ref"); any other exit code throws with git's stderr.
  */
 async function gitAnswer<T>(cwd: string, args: string[], answers: Record<number, T>): Promise<T> {
   const out = await exec.getExecOutput('git', args, { cwd, ignoreReturnCode: true });
-  if (!(out.exitCode in answers)) {
-    throw new Error(`git ${args[0]} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
-  }
+  if (!(out.exitCode in answers)) throw gitFailure(args, out);
   return answers[out.exitCode];
 }
 
-/** Run git in `cwd`; any non-zero exit throws. */
-async function git(cwd: string, args: string[]): Promise<void> {
-  await gitAnswer(cwd, args, { 0: undefined });
+/** Run git in `cwd` and return its trimmed stdout; any non-zero exit throws. */
+async function git(cwd: string, args: string[], input = ''): Promise<string> {
+  const out = await exec.getExecOutput('git', args, { cwd, ignoreReturnCode: true, input: Buffer.from(input) });
+  if (out.exitCode !== 0) throw gitFailure(args, out);
+  return out.stdout.trim();
 }
 
 /** Authenticated HTTPS remote for a GitHub `owner/repo`. */
@@ -53,72 +60,105 @@ export function githubRemoteUrl(token: string, repo: string): string {
   return `https://x-access-token:${token}@github.com/${repo}.git`;
 }
 
-/** A worktree checked out at the remote tip of the target branch (or an empty orphan). */
-export interface Worktree {
-  repoDir: string; // the source repository that owns the worktree registration
-  path: string;
+/** Point the source repo's `origin` at the deploy remote and set the commit identity. Once per deploy. */
+export async function configureSourceRepo(source: SourceRepo): Promise<void> {
+  await git(source.dir, ['config', 'user.name', GIT_USER_NAME]);
+  await git(source.dir, ['config', 'user.email', GIT_USER_EMAIL]);
+  await git(source.dir, ['remote', 'set-url', 'origin', source.remoteUrl]);
 }
 
 /**
- * Prepare a git worktree at the current remote tip of the target branch, or an
- * empty orphan worktree when the branch does not exist yet (first deploy).
+ * What a deploy commit is built on: the remote tip of the target branch, or nothing at all on the
+ * first deploy -- no parents and the empty tree. The deploy commit is created detached from both
+ * (commit-tree), so no local branch is ever created in the source repo.
  */
-export async function prepareBranch(source: SourceRepo, targetBranch: string): Promise<Worktree> {
-  const repoDir = source.dir;
-  const workdir = await mkdtemp(path.join(os.tmpdir(), 'gh-pages-'));
+export interface CommitBase {
+  parents: string[];
+  tree: string;
+}
 
-  // Configure git identity and authenticated remote URL. [LAW:single-enforcer]
-  await git(repoDir, ['config', 'user.name', GIT_USER_NAME]);
-  await git(repoDir, ['config', 'user.email', GIT_USER_EMAIL]);
-  await git(repoDir, ['remote', 'set-url', 'origin', source.remoteUrl]);
+/** A detached worktree whose index and files are exactly `base.tree`. */
+export interface Worktree {
+  path: string;
+  base: CommitBase;
+}
 
+async function resolveBase(repoDir: string, targetBranch: string): Promise<CommitBase> {
+  const ref = `refs/heads/${targetBranch}`;
   // ls-remote --exit-code answers "does the branch exist" with exit 2 for "no". A network or
   // auth failure is a different exit and throws, instead of masquerading as a first deploy.
-  const branchExists = await gitAnswer(
-    repoDir,
-    ['ls-remote', '--exit-code', '--heads', 'origin', targetBranch],
-    { 0: true, 2: false },
-  );
-
-  if (branchExists) {
-    // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
-    // metadata-extractor's `git log` over ranges that predate gh-pages history.
-    // Explicit refspec so the tracking ref updates regardless of the remote's fetch config.
-    await git(repoDir, ['fetch', 'origin', `+refs/heads/${targetBranch}:refs/remotes/origin/${targetBranch}`]);
-    await git(repoDir, ['worktree', 'add', '--detach', workdir, `origin/${targetBranch}`]);
-  } else {
-    core.info(`Target branch ${targetBranch} not found on remote; creating orphan branch.`);
-    await git(repoDir, ['worktree', 'add', '--detach', workdir]);
-    await git(workdir, ['checkout', '--orphan', targetBranch]);
-    await git(workdir, ['rm', '-rf', '--quiet', '.']);
+  const exists = await gitAnswer(repoDir, ['ls-remote', '--exit-code', 'origin', ref], { 0: true, 2: false });
+  if (!exists) {
+    core.info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
+    return { parents: [], tree: await git(repoDir, ['mktree']) };
   }
+  // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
+  // metadata-extractor's `git log` over ranges that predate gh-pages history.
+  // Explicit refspec so the tracking ref updates regardless of the remote's fetch config.
+  const tracking = `refs/remotes/origin/${targetBranch}`;
+  await git(repoDir, ['fetch', 'origin', `+${ref}:${tracking}`]);
+  const tip = await git(repoDir, ['rev-parse', '--verify', `${tracking}^{commit}`]);
+  return { parents: [tip], tree: await git(repoDir, ['rev-parse', `${tip}^{tree}`]) };
+}
 
-  return { repoDir, path: workdir };
+/**
+ * Run `use` on a fresh worktree at the current remote tip of the target branch, then remove the
+ * worktree whether `use` succeeded or not.
+ * [LAW:no-ambient-temporal-coupling] The worktree's whole lifecycle -- create, populate, use,
+ *   remove -- has this one owner, so no failure point can leak a registered worktree.
+ */
+export async function withWorktree<T>(
+  source: SourceRepo,
+  targetBranch: string,
+  use: (worktree: Worktree) => Promise<T>,
+): Promise<T> {
+  const base = await resolveBase(source.dir, targetBranch);
+  const worktree: Worktree = { path: path.join(os.tmpdir(), `gh-pages-${randomUUID()}`), base };
+  // --no-checkout leaves the index empty; read-tree then makes index and files exactly the base tree.
+  await git(source.dir, ['worktree', 'add', '--detach', '--no-checkout', worktree.path, 'HEAD']);
+  try {
+    await git(worktree.path, ['read-tree', '-u', '--reset', base.tree]);
+    return await use(worktree);
+  } finally {
+    // --force: an attempt can fail mid-render and leave changes behind. A cleanup failure is
+    // logged and never masks the attempt's own error.
+    await git(source.dir, ['worktree', 'remove', '--force', worktree.path]).catch((e: unknown) => {
+      core.warning(`Worktree cleanup failed: ${e instanceof Error ? e.message : String(e)}`);
+    });
+  }
 }
 
 /**
  * What happened to a deploy commit:
  * - `pushed`: the commit is now the remote tip.
- * - `unchanged`: the worktree matched the remote tip; nothing to commit.
+ * - `unchanged`: the rendered tree matched the remote tip; nothing to commit.
  * - `stale`: someone else pushed first; the commit was built on an old tip and was
- *   rejected. The caller rebuilds from the new tip -- it is never rebased, because every
- *   derived file (index, sitemap, health, SEO tags) must be re-rendered from the new manifest.
+ *   rejected with `rejection`. The caller rebuilds from the new tip -- it is never rebased, because
+ *   every derived file (index, sitemap, health, SEO tags) must be re-rendered from the new manifest.
  */
-export type PushOutcome = 'pushed' | 'unchanged' | 'stale';
+export type PushOutcome =
+  | { kind: 'pushed' }
+  | { kind: 'unchanged' }
+  | { kind: 'stale'; rejection: string };
 
 // `git push --porcelain` prints one "!<TAB><src>:<dst><TAB><status>" line per refused ref. A tip that
 // moved before our push is "[rejected] (fetch first|non-fast-forward)"; a tip that moved *during* it
 // loses the remote's compare-and-swap on the ref, which servers report as "[remote rejected]" with
-// "incorrect old value provided", "reference already exists" (both sides creating the branch),
-// "cannot lock ref ...", or "failed to update ref". Every other
-// refusal (a hook decline, a protected branch) is not ours to retry.
+// "incorrect old value provided", "reference already exists" (both sides creating the branch), or a
+// lock failure naming the expected old value. Every other refusal -- a hook decline, a protected
+// branch, a lock failure for any other reason -- is not a race and is not ours to retry.
 const STALE_TIP_RE =
-  /^!\t[^\t]+\t(\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((incorrect old value provided|reference already exists|cannot lock ref|failed to update ref)\b.*\))$/m;
+  /^!\t[^\t]+\t(\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((incorrect old value provided|reference already exists|cannot lock ref '[^']+': (is at [0-9a-f]+ but expected [0-9a-f]+|reference already exists))\))$/m;
+
+/** The porcelain line saying the push lost a race for the branch tip, or null if it lost no race. */
+export function staleTipRejection(porcelain: string): string | null {
+  return STALE_TIP_RE.exec(porcelain)?.[0] ?? null;
+}
 
 /**
- * Stage everything in the worktree, commit as "Deploy <versionSlot>", and push to
- * targetBranch as a plain (non-force) push -- the remote accepts it only if its tip is
- * still the one this worktree was built on. Any failure other than a stale tip throws.
+ * Commit everything in the worktree as "Deploy <versionSlot>" on top of `worktree.base`, and push
+ * it to targetBranch as a plain (non-force) push -- the remote accepts it only if its tip is still
+ * the base. Any failure other than a stale tip throws.
  */
 export async function commitAndPush(
   worktree: Worktree,
@@ -127,28 +167,18 @@ export async function commitAndPush(
 ): Promise<PushOutcome> {
   const wd = worktree.path;
   await git(wd, ['add', '-A']);
+  const tree = await git(wd, ['write-tree']);
+  if (tree === worktree.base.tree) return { kind: 'unchanged' };
 
-  const staged = await gitAnswer(wd, ['diff', '--cached', '--quiet'], { 0: false, 1: true });
-  if (!staged) return 'unchanged';
+  const parentArgs = worktree.base.parents.flatMap((p) => ['-p', p]);
+  const commit = await git(wd, ['commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`]);
 
-  await git(wd, ['commit', '--quiet', '-m', `Deploy ${context.versionSlot}`]);
-
-  const push = await exec.getExecOutput(
-    'git',
-    ['push', '--porcelain', 'origin', `HEAD:refs/heads/${targetBranch}`],
-    { cwd: wd, ignoreReturnCode: true },
-  );
-  if (push.exitCode === 0) return 'pushed';
-  if (STALE_TIP_RE.test(push.stdout)) return 'stale';
-  throw new Error(`git push failed (exit ${push.exitCode}): ${push.stderr.trim()} ${push.stdout.trim()}`);
-}
-
-/**
- * Remove the worktree directory. Uses --force to clean up even if the worktree
- * has uncommitted changes (an attempt can fail mid-render).
- */
-export async function cleanupWorktree(worktree: Worktree): Promise<void> {
-  await git(worktree.repoDir, ['worktree', 'remove', '--force', worktree.path]);
+  const args = ['push', '--porcelain', 'origin', `${commit}:refs/heads/${targetBranch}`];
+  const push = await exec.getExecOutput('git', args, { cwd: wd, ignoreReturnCode: true });
+  if (push.exitCode === 0) return { kind: 'pushed' };
+  const rejection = staleTipRejection(push.stdout);
+  if (rejection !== null) return { kind: 'stale', rejection };
+  throw gitFailure(args, { ...push, stderr: `${push.stderr.trim()} ${push.stdout.trim()}` });
 }
 
 /**

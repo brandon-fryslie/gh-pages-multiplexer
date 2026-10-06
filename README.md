@@ -51,7 +51,7 @@ on:
     tags: ['v*']
   pull_request:
 
-# Serialize concurrent runs so the rebase-retry path is rarely exercised
+# Serialize concurrent runs so the rebuild-and-retry path is rarely exercised
 concurrency:
   group: pages-deploy
   cancel-in-progress: false
@@ -307,7 +307,7 @@ concurrency:
   cancel-in-progress: false
 ```
 
-If two runs slip through anyway (or you use the CLI from multiple machines), the tool handles it with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip, up to 5 attempts. Any other git failure fails the deploy. The log line `Deployed <version> to <url> (N publish attempt(s))` shows how many attempts it took.
+If two runs slip through anyway (or you use the CLI from multiple machines), the tool handles it with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip, up to 5 attempts. Any other git failure fails the deploy. If every attempt loses the race, the deploy fails with git's last rejection. The log line `Deployed <version> to <url> (<outcome>, N publish attempt(s))` shows whether a commit was published (`pushed`) or the branch already matched (`unchanged`), and how many attempts it took.
 
 ---
 
@@ -334,7 +334,7 @@ resolveRef              (ref pattern match + version slot)
     ↓
 extractCommits          (git log previousSha..currentSha, capped at 100)
     ↓
-prepareBranch           (fetch gh-pages, create worktree)
+withWorktree            (fetch gh-pages tip, create worktree)
     ↓
 placeContent            (rsync source-dir → workdir/versionSlot/)
     ↓
@@ -344,7 +344,7 @@ renderIndexHtml         (regenerate root index.html from manifest)
     ↓
 writeManifest           (update versions.json atomically)
     ↓
-commitAndPush           (one atomic commit; on a stale tip, rebuild from prepareBranch)
+commitAndPush           (one atomic commit; on a stale tip, rebuild on a fresh worktree)
     ↓
 upsertPreviewComment    (only in PR context, Action only)
 ```

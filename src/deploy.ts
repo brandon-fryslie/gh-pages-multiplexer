@@ -12,9 +12,9 @@ import * as core from '@actions/core';
 import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
-  prepareBranch,
+  configureSourceRepo,
+  withWorktree,
   commitAndPush,
-  cleanupWorktree,
   readCnameFile,
   writeIndexHtml,
   injectWidgetForVersion,
@@ -46,32 +46,33 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
   // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
   if (config.token) core.setSecret(config.token);
 
+  await configureSourceRepo(source);
+
+  let lastRejection = '';
   for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
-    // Stage 1: Prepare branch (git worktree at the current remote tip)
-    const worktree = await prepareBranch(source, config.targetBranch);
-    try {
+    // Stage 1: a git worktree at the current remote tip, removed when the attempt ends.
+    const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
       const rendered = await renderDeployment(worktree.path, config, source.dir);
       // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-      const outcome = await commitAndPush(worktree, rendered.context, config.targetBranch);
-      core.info(`Publish attempt ${attempt}: ${outcome}`);
-      if (outcome !== 'stale') {
-        return {
-          version: rendered.context.versionSlot,
-          url: rendered.url,
-          removedVersions: config.cleanupVersions,
-          attempts: attempt,
-        };
-      }
-      core.warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
-    } finally {
-      // Failure to clean up is logged but never masks the original error.
-      await cleanupWorktree(worktree).catch((e: unknown) => {
-        core.warning(`Worktree cleanup failed: ${e instanceof Error ? e.message : String(e)}`);
-      });
+      const published = await commitAndPush(worktree, rendered.context, config.targetBranch);
+      return { rendered, published };
+    });
+    core.info(`Publish attempt ${attempt}: ${published.kind}`);
+    if (published.kind !== 'stale') {
+      return {
+        version: rendered.context.versionSlot,
+        url: rendered.url,
+        removedVersions: config.cleanupVersions,
+        outcome: published.kind,
+        attempts: attempt,
+      };
     }
+    lastRejection = published.rejection;
+    core.warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
   }
   throw new Error(
-    `Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts`,
+    `Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts ` +
+      `(last rejection: ${lastRejection.trim()})`,
   );
 }
 

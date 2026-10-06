@@ -35,6 +35,7 @@ var child = require('child_process');
 var timers$1 = require('timers');
 var path$1 = require('node:path');
 var os$1 = require('node:os');
+var node_crypto = require('node:crypto');
 var promises = require('node:fs/promises');
 var node_child_process = require('node:child_process');
 
@@ -33437,97 +33438,121 @@ async function injectStorageWrapperIntoDir(versionDir, opts) {
     return count;
 }
 
-// [LAW:dataflow-not-control-flow] prepareBranch always runs the same configure -> probe -> worktree-add
-//   pipeline. Whether the target branch exists is *data* (the ls-remote outcome) that picks which
-//   worktree-add variant runs, not a condition that skips operations.
+// [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
+//   commit -> push pipeline. Whether the target branch exists is *data* -- the commit's base
+//   (parents + tree) -- never a condition that picks a different sequence of git operations.
 // [LAW:single-enforcer] Git identity, remote URL configuration (with token), and the meaning of every
 //   git exit code live in exactly one place -- this module. No other code talks to `git` directly.
 // [LAW:no-silent-failure] Every git invocation either succeeds or throws. The only non-zero exits
-//   that are not errors are the ones a command defines as an answer (diff --quiet, ls-remote
-//   --exit-code, a stale-tip push rejection), and each is mapped to a named outcome below.
+//   that are not errors are the ones a command defines as an answer (ls-remote --exit-code, a
+//   stale-tip push rejection), and each is mapped to a named outcome below.
 const GIT_USER_NAME = 'github-actions[bot]';
 const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
+/** Error text for a failed git command; the credential in an authenticated URL is redacted. */
+function gitFailure(args, out) {
+    const message = `git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`;
+    return new Error(message.replace(/\/\/[^/@\s]+@/g, '//***@'));
+}
 /**
  * Run git in `cwd`. `answers` maps each exit code the command defines as an answer to its
- * outcome (diff --quiet: 1 = "has changes"); any other exit code throws with git's stderr.
+ * outcome (ls-remote --exit-code: 2 = "no such ref"); any other exit code throws with git's stderr.
  */
 async function gitAnswer(cwd, args, answers) {
     const out = await getExecOutput('git', args, { cwd, ignoreReturnCode: true });
-    if (!(out.exitCode in answers)) {
-        throw new Error(`git ${args[0]} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
-    }
+    if (!(out.exitCode in answers))
+        throw gitFailure(args, out);
     return answers[out.exitCode];
 }
-/** Run git in `cwd`; any non-zero exit throws. */
-async function git(cwd, args) {
-    await gitAnswer(cwd, args, { 0: undefined });
+/** Run git in `cwd` and return its trimmed stdout; any non-zero exit throws. */
+async function git(cwd, args, input = '') {
+    const out = await getExecOutput('git', args, { cwd, ignoreReturnCode: true, input: Buffer.from(input) });
+    if (out.exitCode !== 0)
+        throw gitFailure(args, out);
+    return out.stdout.trim();
 }
 /** Authenticated HTTPS remote for a GitHub `owner/repo`. */
 function githubRemoteUrl(token, repo) {
     // Actions log masking + core.setSecret on token mitigates T-01-08.
     return `https://x-access-token:${token}@github.com/${repo}.git`;
 }
-/**
- * Prepare a git worktree at the current remote tip of the target branch, or an
- * empty orphan worktree when the branch does not exist yet (first deploy).
- */
-async function prepareBranch(source, targetBranch) {
-    const repoDir = source.dir;
-    const workdir = await promises.mkdtemp(path__namespace$1.join(os__namespace$1.tmpdir(), 'gh-pages-'));
-    // Configure git identity and authenticated remote URL. [LAW:single-enforcer]
-    await git(repoDir, ['config', 'user.name', GIT_USER_NAME]);
-    await git(repoDir, ['config', 'user.email', GIT_USER_EMAIL]);
-    await git(repoDir, ['remote', 'set-url', 'origin', source.remoteUrl]);
+/** Point the source repo's `origin` at the deploy remote and set the commit identity. Once per deploy. */
+async function configureSourceRepo(source) {
+    await git(source.dir, ['config', 'user.name', GIT_USER_NAME]);
+    await git(source.dir, ['config', 'user.email', GIT_USER_EMAIL]);
+    await git(source.dir, ['remote', 'set-url', 'origin', source.remoteUrl]);
+}
+async function resolveBase(repoDir, targetBranch) {
+    const ref = `refs/heads/${targetBranch}`;
     // ls-remote --exit-code answers "does the branch exist" with exit 2 for "no". A network or
     // auth failure is a different exit and throws, instead of masquerading as a first deploy.
-    const branchExists = await gitAnswer(repoDir, ['ls-remote', '--exit-code', '--heads', 'origin', targetBranch], { 0: true, 2: false });
-    if (branchExists) {
-        // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
-        // metadata-extractor's `git log` over ranges that predate gh-pages history.
-        // Explicit refspec so the tracking ref updates regardless of the remote's fetch config.
-        await git(repoDir, ['fetch', 'origin', `+refs/heads/${targetBranch}:refs/remotes/origin/${targetBranch}`]);
-        await git(repoDir, ['worktree', 'add', '--detach', workdir, `origin/${targetBranch}`]);
+    const exists = await gitAnswer(repoDir, ['ls-remote', '--exit-code', 'origin', ref], { 0: true, 2: false });
+    if (!exists) {
+        info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
+        return { parents: [], tree: await git(repoDir, ['mktree']) };
     }
-    else {
-        info(`Target branch ${targetBranch} not found on remote; creating orphan branch.`);
-        await git(repoDir, ['worktree', 'add', '--detach', workdir]);
-        await git(workdir, ['checkout', '--orphan', targetBranch]);
-        await git(workdir, ['rm', '-rf', '--quiet', '.']);
+    // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
+    // metadata-extractor's `git log` over ranges that predate gh-pages history.
+    // Explicit refspec so the tracking ref updates regardless of the remote's fetch config.
+    const tracking = `refs/remotes/origin/${targetBranch}`;
+    await git(repoDir, ['fetch', 'origin', `+${ref}:${tracking}`]);
+    const tip = await git(repoDir, ['rev-parse', '--verify', `${tracking}^{commit}`]);
+    return { parents: [tip], tree: await git(repoDir, ['rev-parse', `${tip}^{tree}`]) };
+}
+/**
+ * Run `use` on a fresh worktree at the current remote tip of the target branch, then remove the
+ * worktree whether `use` succeeded or not.
+ * [LAW:no-ambient-temporal-coupling] The worktree's whole lifecycle -- create, populate, use,
+ *   remove -- has this one owner, so no failure point can leak a registered worktree.
+ */
+async function withWorktree(source, targetBranch, use) {
+    const base = await resolveBase(source.dir, targetBranch);
+    const worktree = { path: path__namespace$1.join(os__namespace$1.tmpdir(), `gh-pages-${node_crypto.randomUUID()}`), base };
+    // --no-checkout leaves the index empty; read-tree then makes index and files exactly the base tree.
+    await git(source.dir, ['worktree', 'add', '--detach', '--no-checkout', worktree.path, 'HEAD']);
+    try {
+        await git(worktree.path, ['read-tree', '-u', '--reset', base.tree]);
+        return await use(worktree);
     }
-    return { repoDir, path: workdir };
+    finally {
+        // --force: an attempt can fail mid-render and leave changes behind. A cleanup failure is
+        // logged and never masks the attempt's own error.
+        await git(source.dir, ['worktree', 'remove', '--force', worktree.path]).catch((e) => {
+            warning(`Worktree cleanup failed: ${e instanceof Error ? e.message : String(e)}`);
+        });
+    }
 }
 // `git push --porcelain` prints one "!<TAB><src>:<dst><TAB><status>" line per refused ref. A tip that
 // moved before our push is "[rejected] (fetch first|non-fast-forward)"; a tip that moved *during* it
 // loses the remote's compare-and-swap on the ref, which servers report as "[remote rejected]" with
-// "incorrect old value provided", "reference already exists" (both sides creating the branch),
-// "cannot lock ref ...", or "failed to update ref". Every other
-// refusal (a hook decline, a protected branch) is not ours to retry.
-const STALE_TIP_RE = /^!\t[^\t]+\t(\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((incorrect old value provided|reference already exists|cannot lock ref|failed to update ref)\b.*\))$/m;
+// "incorrect old value provided", "reference already exists" (both sides creating the branch), or a
+// lock failure naming the expected old value. Every other refusal -- a hook decline, a protected
+// branch, a lock failure for any other reason -- is not a race and is not ours to retry.
+const STALE_TIP_RE = /^!\t[^\t]+\t(\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((incorrect old value provided|reference already exists|cannot lock ref '[^']+': (is at [0-9a-f]+ but expected [0-9a-f]+|reference already exists))\))$/m;
+/** The porcelain line saying the push lost a race for the branch tip, or null if it lost no race. */
+function staleTipRejection(porcelain) {
+    return STALE_TIP_RE.exec(porcelain)?.[0] ?? null;
+}
 /**
- * Stage everything in the worktree, commit as "Deploy <versionSlot>", and push to
- * targetBranch as a plain (non-force) push -- the remote accepts it only if its tip is
- * still the one this worktree was built on. Any failure other than a stale tip throws.
+ * Commit everything in the worktree as "Deploy <versionSlot>" on top of `worktree.base`, and push
+ * it to targetBranch as a plain (non-force) push -- the remote accepts it only if its tip is still
+ * the base. Any failure other than a stale tip throws.
  */
 async function commitAndPush(worktree, context, targetBranch) {
     const wd = worktree.path;
     await git(wd, ['add', '-A']);
-    const staged = await gitAnswer(wd, ['diff', '--cached', '--quiet'], { 0: false, 1: true });
-    if (!staged)
-        return 'unchanged';
-    await git(wd, ['commit', '--quiet', '-m', `Deploy ${context.versionSlot}`]);
-    const push = await getExecOutput('git', ['push', '--porcelain', 'origin', `HEAD:refs/heads/${targetBranch}`], { cwd: wd, ignoreReturnCode: true });
+    const tree = await git(wd, ['write-tree']);
+    if (tree === worktree.base.tree)
+        return { kind: 'unchanged' };
+    const parentArgs = worktree.base.parents.flatMap((p) => ['-p', p]);
+    const commit = await git(wd, ['commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`]);
+    const args = ['push', '--porcelain', 'origin', `${commit}:refs/heads/${targetBranch}`];
+    const push = await getExecOutput('git', args, { cwd: wd, ignoreReturnCode: true });
     if (push.exitCode === 0)
-        return 'pushed';
-    if (STALE_TIP_RE.test(push.stdout))
-        return 'stale';
-    throw new Error(`git push failed (exit ${push.exitCode}): ${push.stderr.trim()} ${push.stdout.trim()}`);
-}
-/**
- * Remove the worktree directory. Uses --force to clean up even if the worktree
- * has uncommitted changes (an attempt can fail mid-render).
- */
-async function cleanupWorktree(worktree) {
-    await git(worktree.repoDir, ['worktree', 'remove', '--force', worktree.path]);
+        return { kind: 'pushed' };
+    const rejection = staleTipRejection(push.stdout);
+    if (rejection !== null)
+        return { kind: 'stale', rejection };
+    throw gitFailure(args, { ...push, stderr: `${push.stderr.trim()} ${push.stdout.trim()}` });
 }
 /**
  * Read the CNAME file from the worktree root. Returns the trimmed domain string
@@ -33969,32 +33994,31 @@ async function deploy(config, source) {
     // Mask the token in logs even if a downstream tool prints it. (T-01-08 mitigation)
     if (config.token)
         setSecret(config.token);
+    await configureSourceRepo(source);
+    let lastRejection = '';
     for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
-        // Stage 1: Prepare branch (git worktree at the current remote tip)
-        const worktree = await prepareBranch(source, config.targetBranch);
-        try {
+        // Stage 1: a git worktree at the current remote tip, removed when the attempt ends.
+        const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
             const rendered = await renderDeployment(worktree.path, config, source.dir);
             // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-            const outcome = await commitAndPush(worktree, rendered.context, config.targetBranch);
-            info(`Publish attempt ${attempt}: ${outcome}`);
-            if (outcome !== 'stale') {
-                return {
-                    version: rendered.context.versionSlot,
-                    url: rendered.url,
-                    removedVersions: config.cleanupVersions,
-                    attempts: attempt,
-                };
-            }
-            warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
+            const published = await commitAndPush(worktree, rendered.context, config.targetBranch);
+            return { rendered, published };
+        });
+        info(`Publish attempt ${attempt}: ${published.kind}`);
+        if (published.kind !== 'stale') {
+            return {
+                version: rendered.context.versionSlot,
+                url: rendered.url,
+                removedVersions: config.cleanupVersions,
+                outcome: published.kind,
+                attempts: attempt,
+            };
         }
-        finally {
-            // Failure to clean up is logged but never masks the original error.
-            await cleanupWorktree(worktree).catch((e) => {
-                warning(`Worktree cleanup failed: ${e instanceof Error ? e.message : String(e)}`);
-            });
-        }
+        lastRejection = published.rejection;
+        warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
     }
-    throw new Error(`Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts`);
+    throw new Error(`Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts ` +
+        `(last rejection: ${lastRejection.trim()})`);
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -34235,7 +34259,7 @@ async function main(argv, env) {
             dir: process.cwd(),
             remoteUrl: githubRemoteUrl(config.token, config.repo),
         });
-        process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.attempts} publish attempt(s))\n`);
+        process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s))\n`);
         return 0;
     }
     catch (err) {

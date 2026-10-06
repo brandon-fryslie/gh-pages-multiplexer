@@ -10,20 +10,46 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemoteUrl, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
+import { githubRemoteUrl, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
 import { WIDGET_MARKER } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
 import type { DeploymentContext, Manifest } from '../src/types.js';
 import { readFile } from 'node:fs/promises';
 
-// prepareBranch / commitAndPush / cleanupWorktree run against real git in
+// withWorktree / commitAndPush run against real git in
 // concurrent-deploy.test.ts.
 describe('githubRemoteUrl', () => {
   it('authenticates with the token as an x-access-token user', () => {
     expect(githubRemoteUrl('ghs_token123', 'owner/repo')).toBe(
       'https://x-access-token:ghs_token123@github.com/owner/repo.git',
     );
+  });
+});
+
+describe('staleTipRejection', () => {
+  const line = (status: string) => `!\tabc123:refs/heads/gh-pages\t${status}`;
+  const porcelain = (status: string) => `To https://github.com/o/r.git\n${line(status)}\nDone\n`;
+
+  it.each([
+    '[rejected] (fetch first)',
+    '[rejected] (non-fast-forward)',
+    '[remote rejected] (incorrect old value provided)',
+    '[remote rejected] (reference already exists)',
+    "[remote rejected] (cannot lock ref 'refs/heads/gh-pages': is at 1a2b3c but expected 4d5e6f)",
+    "[remote rejected] (cannot lock ref 'refs/heads/gh-pages': reference already exists)",
+  ])('a lost race for the tip: %s', (status) => {
+    expect(staleTipRejection(porcelain(status))).toBe(line(status));
+  });
+
+  it.each([
+    '[remote rejected] (pre-receive hook declined)',
+    '[remote rejected] (protected branch hook declined)',
+    "[remote rejected] (cannot lock ref 'refs/heads/gh-pages': 'refs/heads/gh-pages/x' exists; cannot create 'refs/heads/gh-pages')",
+    "[remote rejected] (cannot lock ref 'refs/heads/gh-pages': Unable to create '/srv/repo.git/refs/heads/gh-pages.lock': File exists.)",
+    '[remote rejected] (failed to update ref)',
+  ])('not a race: %s', (status) => {
+    expect(staleTipRejection(porcelain(status))).toBeNull();
   });
 });
 

@@ -129,7 +129,7 @@ afterEach(async () => {
 describe('concurrent deploys', () => {
   it('two deploys built on the same tip both land, and derived files match the final manifest', async () => {
     const seed = await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
-    expect(seed.attempts).toBe(1);
+    expect(seed).toMatchObject({ outcome: 'pushed', attempts: 1 });
 
     const [a, b] = [await sourceClone('a'), await sourceClone('b')];
     const [cfgA, cfgB] = [await configFor('v1.0.0'), await configFor('v2.0.0')];
@@ -138,6 +138,7 @@ describe('concurrent deploys', () => {
 
     // Exactly one of them lost the race and rebuilt from the winner's tip.
     expect(results.map((r) => r.attempts).sort()).toEqual([1, 2]);
+    expect(results.map((r) => r.outcome)).toEqual(['pushed', 'pushed']);
 
     const manifest = await expectDerivedFilesMatchManifest();
     expect(manifest.versions.map((v) => v.version).sort()).toEqual(['v0.9.0', 'v1.0.0', 'v2.0.0']);
@@ -164,16 +165,51 @@ describe('concurrent deploys', () => {
     await writeFile(hook, '#!/bin/sh\necho "policy says no" >&2\nexit 1\n', { mode: 0o755 });
     await git(remote, 'config', 'core.hooksPath', path.join(remote, 'hooks')); // beat any global hooksPath
 
-    await expect(deploy(config, await sourceClone('a'))).rejects.toThrow(/git push failed[\s\S]*policy says no/);
+    const source = await sourceClone('a');
+    await expect(deploy(config, source)).rejects.toThrow(/git push .* failed[\s\S]*policy says no/);
     const pushes = getExecOutputMock.mock.calls.filter(([, args]) => args?.[0] === 'push');
     expect(pushes).toHaveLength(1);
+    // The failed attempt's worktree is removed, not left registered in the source repo.
+    expect((await git(source.dir, 'worktree', 'list')).split('\n')).toHaveLength(1);
   });
 
   it('fails loudly instead of treating an unreachable remote as a first deploy', async () => {
     const config = await configFor('v1.0.0');
     const source = { ...(await sourceClone('a')), remoteUrl: path.join(root, 'no-such-remote.git') };
 
-    await expect(deploy(config, source)).rejects.toThrow(/git ls-remote failed/);
+    await expect(deploy(config, source)).rejects.toThrow(/git ls-remote .* failed/);
+  });
+
+  it('gives up after every attempt loses the race, naming the last rejection', async () => {
+    const config = await configFor('v1.0.0');
+    const rejection = `!\tdeadbeef:refs/heads/${TARGET}\t[rejected] (fetch first)`;
+    getExecOutputMock.mockImplementation(async (cmd, args, opts) =>
+      args?.[0] === 'push'
+        ? { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' }
+        : realGetExecOutput(cmd, args, opts),
+    );
+
+    await expect(deploy(config, await sourceClone('a'))).rejects.toThrow(
+      `the branch moved during each of 5 attempts (last rejection: ${rejection})`,
+    );
+  });
+
+  it('first deploy creates the branch on the remote without touching local branches or look-alike refs', async () => {
+    // A remote branch whose name merely ends in the target must not read as "the target exists".
+    const seeder = await sourceClone('seeder');
+    await git(seeder.dir, 'push', '--quiet', remote, `HEAD:refs/heads/docs/${TARGET}`);
+    // A local branch named like the target, as a CLI user's own clone may have.
+    const source = await sourceClone('a');
+    await git(source.dir, 'branch', TARGET);
+    const localBefore = await git(source.dir, 'for-each-ref', 'refs/heads');
+
+    const result = await deploy(await configFor('v1.0.0'), source);
+
+    expect(result).toMatchObject({ outcome: 'pushed', attempts: 1 });
+    // The deploy commit is a root commit: gh-pages history never includes source history.
+    expect(await git(root, '--git-dir', remote, 'rev-list', '--count', TARGET)).toBe('1');
+    expect(await git(source.dir, 'for-each-ref', 'refs/heads')).toBe(localBefore);
+    await expectDerivedFilesMatchManifest();
   });
 
   it('redeploying identical content is a successful no-op', async () => {
@@ -189,7 +225,7 @@ describe('concurrent deploys', () => {
       const tip = await git(root, '--git-dir', remote, 'rev-parse', TARGET);
 
       const result = await deploy(config, await sourceClone('c'));
-      expect(result.attempts).toBe(1);
+      expect(result).toMatchObject({ outcome: 'unchanged', attempts: 1 });
       expect(await git(root, '--git-dir', remote, 'rev-parse', TARGET)).toBe(tip);
     } finally {
       vi.useRealTimers();
