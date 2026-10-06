@@ -299,7 +299,7 @@ To opt out: don't use this tool. There's no configuration knob to disable inject
 
 ## Concurrent runs
 
-Give each ref its own `concurrency` group. The version slot is derived from the ref, so this is one group per slot:
+Give each ref its own `concurrency` group:
 
 ```yaml
 concurrency:
