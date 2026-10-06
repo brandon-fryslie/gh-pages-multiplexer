@@ -40,6 +40,12 @@ export interface DeployConfig {
   cleanupVersions: string[];
 }
 
+/** The local source checkout a deploy runs from, and the remote it publishes to. */
+export interface SourceRepo {
+  dir: string; // git working directory of the source repo (commit metadata is read here)
+  remoteUrl: string; // URL `origin` is set to; the target branch lives on this remote
+}
+
 /** Context derived from the git ref */
 export interface DeploymentContext {
   versionSlot: string; // sanitized directory name (e.g., "v2.1.0", "feature-auth")
@@ -91,4 +97,6 @@ export interface DeployResult {
   version: string;
   url: string;
   removedVersions: string[];  // version slots removed during cleanup
+  outcome: 'pushed' | 'unchanged';  // whether the deploy published a commit or matched the tip already
+  attempts: number;  // publish attempts; >1 means a concurrent deploy moved the tip and we rebuilt
 }
