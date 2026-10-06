@@ -30,6 +30,24 @@ async function commitFile(dir: string, content: string, msg: string): Promise<st
   return git(dir, 'rev-parse', 'HEAD');
 }
 
+// One `git fast-import` builds n linear commits on top of `parent`; spawning
+// add+commit+rev-parse per commit costs ~10ms each and blows the test timeout.
+async function commitMany(dir: string, parent: string, n: number): Promise<string> {
+  const data = (s: string): string => `data ${Buffer.byteLength(s)}\n${s}\n`;
+  const stream = Array.from({ length: n }, (_, i) =>
+    `commit refs/heads/main\n` +
+    `committer Alice Example <alice@example.com> ${1_700_000_000 + i} +0000\n` +
+    data(`c${i}`) +
+    (i === 0 ? `from ${parent}\n` : '') +
+    `M 644 inline file.txt\n` +
+    data(String(i)),
+  ).join('');
+  const run = exec('git', ['fast-import', '--quiet'], { cwd: dir });
+  run.child.stdin!.end(stream);
+  await run;
+  return head(dir);
+}
+
 async function head(dir: string): Promise<string> {
   return git(dir, 'rev-parse', 'HEAD');
 }
@@ -86,10 +104,8 @@ describe('extractCommits', () => {
 
   it('Test 3: first deploy caps at 100', async () => {
     const dir = await track(makeRepo());
-    for (let i = 0; i < 150; i++) {
-      await commitFile(dir, String(i), `c${i}`);
-    }
-    const cur = await head(dir);
+    const root = await commitFile(dir, 'root', 'root');
+    const cur = await commitMany(dir, root, 150);
     const out = await extractCommits(dir, cur, null);
     expect(out).toHaveLength(100);
   });
@@ -97,10 +113,7 @@ describe('extractCommits', () => {
   it('Test 4: incremental range caps at 100', async () => {
     const dir = await track(makeRepo());
     const prev = await commitFile(dir, 'base', 'base');
-    for (let i = 0; i < 150; i++) {
-      await commitFile(dir, String(i), `c${i}`);
-    }
-    const cur = await head(dir);
+    const cur = await commitMany(dir, prev, 150);
     const out = await extractCommits(dir, cur, prev);
     expect(out).toHaveLength(100);
   });
