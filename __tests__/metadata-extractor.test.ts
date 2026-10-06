@@ -30,6 +30,30 @@ async function commitFile(dir: string, content: string, msg: string): Promise<st
   return git(dir, 'rev-parse', 'HEAD');
 }
 
+// One `git fast-import` builds n linear commits on top of `parent` (or a new
+// root when null); spawning add+commit+rev-parse per commit costs ~10ms each
+// and blows the test timeout.
+async function commitMany(dir: string, parent: string | null, n: number): Promise<string> {
+  const ref = 'refs/heads/main';
+  const t0 = Math.floor(Date.now() / 1000);
+  const data = (s: string): string => `data ${Buffer.byteLength(s)}\n${s}\n`;
+  const stream = Array.from({ length: n }, (_, i) =>
+    `commit ${ref}\n` +
+    `committer Alice Example <alice@example.com> ${t0 + i} +0000\n` +
+    data(`c${i}`) +
+    (i === 0 && parent !== null ? `from ${parent}\n` : '') +
+    `M 644 inline file.txt\n` +
+    data(String(i)),
+  ).join('');
+  const run = exec('git', ['fast-import', '--quiet'], { cwd: dir });
+  // If fast-import dies early the write EPIPEs; its exit rejects `run` with
+  // git's stderr, which is the error worth reporting.
+  run.child.stdin!.on('error', () => {});
+  run.child.stdin!.end(stream);
+  await run;
+  return git(dir, 'rev-parse', ref);
+}
+
 async function head(dir: string): Promise<string> {
   return git(dir, 'rev-parse', 'HEAD');
 }
@@ -86,23 +110,21 @@ describe('extractCommits', () => {
 
   it('Test 3: first deploy caps at 100', async () => {
     const dir = await track(makeRepo());
-    for (let i = 0; i < 150; i++) {
-      await commitFile(dir, String(i), `c${i}`);
-    }
-    const cur = await head(dir);
+    const cur = await commitMany(dir, null, 150);
     const out = await extractCommits(dir, cur, null);
     expect(out).toHaveLength(100);
+    expect(out[0].message).toContain('c149');
+    expect(out[99].message).toContain('c50');
   });
 
   it('Test 4: incremental range caps at 100', async () => {
     const dir = await track(makeRepo());
     const prev = await commitFile(dir, 'base', 'base');
-    for (let i = 0; i < 150; i++) {
-      await commitFile(dir, String(i), `c${i}`);
-    }
-    const cur = await head(dir);
+    const cur = await commitMany(dir, prev, 150);
     const out = await extractCommits(dir, cur, prev);
     expect(out).toHaveLength(100);
+    expect(out[0].message).toContain('c149');
+    expect(out[99].message).toContain('c50');
   });
 
   it('Test 5: unreachable previousSha falls back to first-deploy', async () => {
