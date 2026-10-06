@@ -99,7 +99,7 @@ Each subproject would need its own version slot. Ask the user which subproject(s
 4. **Action version pinning:** match the existing style — if they pin by SHA, pin `gh-pages-multiplexer` by SHA; if they pin by major tag (`@v1`), use `@v1`; if they use `@main`, use `@main` (and warn the user this is not recommended)
 5. **Trigger naming:** if existing workflows use `on: { push: { branches: [main] } }`, use the same pattern — don't switch to `on: push: branches: [main]` shorthand mid-file
 6. **Job naming:** match the casing convention (`deploy`, `Deploy`, `deploy-pages`, etc.)
-7. **Concurrency groups:** give the deploy job a group keyed by version slot (`group: pages-deploy-${{ github.event.pull_request.number || github.ref_name }}`, `cancel-in-progress: false`), even if the existing workflow already has a `concurrency:` block. Never put it in a group shared across refs: GitHub keeps at most one pending run per group, so a PR run would cancel a pending deploy of the default branch
+7. **Concurrency groups:** put a workflow-level group keyed by the ref the slot is derived from (`group: pages-deploy-${{ github.ref }}`, `cancel-in-progress: false`), as in the templates below. If the workflow already has a `concurrency:` block shared across refs (the Pages starter workflows ship `group: pages`), re-key that block to this; don't add a second group beside it, because the shared one still applies. GitHub keeps at most one pending run per group, so in a shared group a PR run cancels a pending deploy of the default branch
 8. **Environment variables:** if the repo uses `env:` at workflow or job level, honor it — don't duplicate env vars at step level
 9. **Secrets usage:** if the repo references secrets via `${{ secrets.X }}` with specific naming conventions, follow them. The default `${{ github.token }}` is almost always enough; don't ask for a PAT unless the user explicitly needs cross-repo deploys.
 
@@ -123,7 +123,7 @@ on:
   pull_request:             # omit if user declined PR previews
 
 concurrency:
-  group: pages-deploy-${{ github.event.pull_request.number || github.ref_name }}
+  group: pages-deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -193,7 +193,7 @@ on:
   pull_request:
 
 concurrency:
-  group: pages-deploy-${{ github.event.pull_request.number || github.ref_name }}
+  group: pages-deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

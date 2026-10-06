@@ -51,9 +51,9 @@ on:
     tags: ['v*']
   pull_request:
 
-# One group per version slot, so a PR run can't cancel a pending main deploy (see Concurrent runs)
+# One group per ref, so a run for one slot can't cancel a pending deploy of another (see Concurrent runs)
 concurrency:
-  group: pages-deploy-${{ github.event.pull_request.number || github.ref_name }}
+  group: pages-deploy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -299,17 +299,17 @@ To opt out: don't use this tool. There's no configuration knob to disable inject
 
 ## Concurrent runs
 
-Give each version slot its own `concurrency` group:
+Give each ref its own `concurrency` group. The version slot is derived from the ref, so this is one group per slot:
 
 ```yaml
 concurrency:
-  group: pages-deploy-${{ github.event.pull_request.number || github.ref_name }}
+  group: pages-deploy-${{ github.ref }}
   cancel-in-progress: false
 ```
 
-By default a GitHub concurrency group holds at most one run in progress and one pending. When another run is queued, GitHub cancels the pending one and queues the new run in its place; `cancel-in-progress: false` does not stop this, it only spares the run already in progress. With one group shared by every ref, a pull request run queued behind a `main` deploy cancels that deploy, and the merged change never ships. A group per slot limits the cancellation to runs for the same slot, where the newest run carries the latest content anyway.
+By default a GitHub concurrency group holds at most one run in progress and one pending. When another run is queued, GitHub cancels the pending one and queues the new run in its place; `cancel-in-progress: false` does not stop this, it only spares the run already in progress. With one group shared by every ref, a pull request run queued behind a `main` deploy cancels that deploy, and the merged change never ships. A group per ref limits the cancellation to runs for the same slot, where the newest run carries the latest content anyway.
 
-Runs for different slots then execute at the same time and race to push `gh-pages`, as do CLI deploys from several machines. The tool handles that race with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip, up to 5 attempts. Any other git failure fails the deploy. If every attempt loses the race, the deploy fails with git's last rejection. The log line `Deployed <version> to <url> (<outcome>, N publish attempt(s))` shows whether a commit was published (`pushed`) or the branch already matched (`unchanged`), and how many attempts it took.
+Runs for different slots then execute at the same time and race to push `gh-pages`, as do CLI deploys from several machines. The tool handles that race with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip, up to 5 attempts. Any other git failure fails the deploy. If every attempt loses the race, the deploy fails with git's last rejection; a burst of more than five deploys for different slots can exhaust the attempts, and re-running the failed job publishes it. The log line `Deployed <version> to <url> (<outcome>, N publish attempt(s))` shows whether a commit was published (`pushed`) or the branch already matched (`unchanged`), and how many attempts it took.
 
 ---
 
