@@ -40,10 +40,19 @@ export interface DeployConfig {
   cleanupVersions: string[];
 }
 
+/** Git config entries, in the order git reads them. */
+export type GitConfig = ReadonlyArray<readonly [key: string, value: string]>;
+
+/** The remote a deploy publishes to: a credential-free URL, and the config that authenticates to it. */
+export interface Remote {
+  url: string;
+  config: GitConfig;
+}
+
 /** The local source checkout a deploy runs from, and the remote it publishes to. */
 export interface SourceRepo {
   dir: string; // git working directory of the source repo (commit metadata is read here)
-  remoteUrl: string; // authenticated URL of the remote the target branch lives on; passed per git command
+  remote: Remote; // the remote the target branch lives on
 }
 
 /** Context derived from the git ref */

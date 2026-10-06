@@ -38869,63 +38869,92 @@ async function injectStorageWrapperIntoDir(versionDir, opts) {
 // [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
 //   commit -> push pipeline. Whether the target branch exists is *data* -- the commit's base
 //   (parents + tree) -- never a condition that picks a different sequence of git operations.
-// [LAW:single-enforcer] Git identity, the authenticated remote URL, and the meaning of every git exit
-//   code live in exactly one place -- this module. No other code talks to `git` directly.
-// [LAW:effects-at-boundaries] Deploy never writes the source repo's config: the remote URL is an
-//   argument to ls-remote/fetch/push and the commit identity a -c on commit-tree, so a CLI run in the
-//   user's own clone leaves their origin and identity exactly as it found them.
+// [LAW:single-enforcer] Git identity, remote authentication, and the meaning of every git exit code
+//   live in exactly one place -- this module. No other code talks to `git` directly.
+// [LAW:effects-at-boundaries] Deploy never writes the source repo's config, refs, or FETCH_HEAD, and
+//   never puts the token in a command line: the remote's URL is credential-free and its auth header
+//   reaches git only through the environment of each git process. A CLI run in the user's own clone
+//   leaves their origin, identity, refs and credential store exactly as it found them.
 // [LAW:no-silent-failure] Every git invocation either succeeds or throws. The only non-zero exits
 //   that are not errors are the ones a command defines as an answer (ls-remote --exit-code, a
 //   stale-tip push rejection), and each is mapped to a named outcome below.
-const GIT_USER_NAME = 'github-actions[bot]';
-const GIT_USER_EMAIL = 'github-actions[bot]@users.noreply.github.com';
-/** Error text for a failed git command; the credential in an authenticated URL is redacted. */
+// GIT_AUTHOR_*/GIT_COMMITTER_* outrank any user.name/user.email config, so a deploy commit's identity
+// is this one even in a clone whose owner exports their own.
+const DEPLOY_IDENTITY = {
+    GIT_AUTHOR_NAME: 'github-actions[bot]',
+    GIT_AUTHOR_EMAIL: 'github-actions[bot]@users.noreply.github.com',
+    GIT_COMMITTER_NAME: 'github-actions[bot]',
+    GIT_COMMITTER_EMAIL: 'github-actions[bot]@users.noreply.github.com',
+};
+/**
+ * The GitHub remote for `owner/repo`, authenticated as actions/checkout does: a basic-auth header
+ * scoped to github.com. The empty entries first reset what git has already read -- a header
+ * actions/checkout persisted, a credential helper -- so this token is the only credential sent, and
+ * a rejected token fails instead of falling back to (or being stored in) the user's own credentials.
+ */
+function githubRemote(token, repo) {
+    const header = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+    return {
+        url: `https://github.com/${repo}.git`,
+        config: [
+            ['credential.helper', ''],
+            ['http.https://github.com/.extraheader', ''],
+            ['http.https://github.com/.extraheader', header],
+        ],
+    };
+}
 function gitFailure(args, out) {
-    const message = `git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`;
-    return new Error(message.replace(/\/\/[^/@\s]+@/g, '//***@'));
+    return new Error(`git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
 }
 /**
- * The one way git is run. Silent: @actions/exec otherwise echoes every command line to stdout, and
- * an authenticated URL's token with it -- outside Actions nothing masks that line.
+ * The one way git is run. Silent, so a command line is never echoed to stdout; never prompts, since a
+ * prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
+ * its children, unlike `-c` arguments, which any local user can read in the process table.
  */
-function runGit(cwd, args, input = '') {
-    return getExecOutput('git', args, { cwd, ignoreReturnCode: true, silent: true, input: Buffer.from(input) });
+function runGit(cwd, args, { config = [], env = {} } = {}) {
+    const inherited = Number(process.env.GIT_CONFIG_COUNT ?? 0);
+    const configEnv = Object.fromEntries(config.flatMap(([key, value], i) => [[`GIT_CONFIG_KEY_${inherited + i}`, key], [`GIT_CONFIG_VALUE_${inherited + i}`, value]]));
+    return getExecOutput('git', args, {
+        cwd,
+        ignoreReturnCode: true,
+        silent: true,
+        input: Buffer.alloc(0), // stdin closed: mktree reads its (empty) tree from it
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...configEnv, GIT_CONFIG_COUNT: String(inherited + config.length), ...env },
+    });
 }
 /**
  * Run git in `cwd`. `answers` maps each exit code the command defines as an answer to its
  * outcome (ls-remote --exit-code: 2 = "no such ref"); any other exit code throws with git's stderr.
  */
-async function gitAnswer(cwd, args, answers) {
-    const out = await runGit(cwd, args);
+async function gitAnswer(cwd, args, answers, run = {}) {
+    const out = await runGit(cwd, args, run);
     if (!(out.exitCode in answers))
         throw gitFailure(args, out);
-    return answers[out.exitCode];
+    return { answer: answers[out.exitCode], stdout: out.stdout.trim() };
 }
 /** Run git in `cwd` and return its trimmed stdout; any non-zero exit throws. */
-async function git(cwd, args, input = '') {
-    const out = await runGit(cwd, args, input);
+async function git(cwd, args, run = {}) {
+    const out = await runGit(cwd, args, run);
     if (out.exitCode !== 0)
         throw gitFailure(args, out);
     return out.stdout.trim();
 }
-/** Authenticated HTTPS remote for a GitHub `owner/repo`. */
-function githubRemoteUrl(token, repo) {
-    return `https://x-access-token:${token}@github.com/${repo}.git`;
-}
 async function resolveBase(source, targetBranch) {
+    const { remote } = source;
     const ref = `refs/heads/${targetBranch}`;
     // ls-remote --exit-code answers "does the branch exist" with exit 2 for "no". A network or
     // auth failure is a different exit and throws, instead of masquerading as a first deploy.
-    const exists = await gitAnswer(source.dir, ['ls-remote', '--exit-code', source.remoteUrl, ref], { 0: true, 2: false });
-    if (!exists) {
+    const probe = await gitAnswer(source.dir, ['ls-remote', '--exit-code', remote.url, ref], { 0: true, 2: false }, remote);
+    if (!probe.answer) {
         info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
         return { parents: [], tree: await git(source.dir, ['mktree']) };
     }
+    // The base is the tip ls-remote saw, fetched by id: no ref and no FETCH_HEAD in the source repo
+    // is written or read, so nothing else touching the clone can change what the deploy builds on.
     // Full depth: a --depth=1 fetch can shallow the source repo, which breaks
     // metadata-extractor's `git log` over ranges that predate gh-pages history.
-    // No destination ref: the tip is read from FETCH_HEAD, so no ref in the source repo is written.
-    await git(source.dir, ['fetch', source.remoteUrl, ref]);
-    const tip = await git(source.dir, ['rev-parse', '--verify', 'FETCH_HEAD^{commit}']);
+    const tip = probe.stdout.split('\t')[0];
+    await git(source.dir, ['fetch', '--no-write-fetch-head', remote.url, tip], remote);
     return { parents: [tip], tree: await git(source.dir, ['rev-parse', `${tip}^{tree}`]) };
 }
 /**
@@ -38967,17 +38996,17 @@ function staleTipRejection(porcelain) {
  * it to targetBranch as a plain (non-force) push -- the remote accepts it only if its tip is still
  * the base. Any failure other than a stale tip throws.
  */
-async function commitAndPush(worktree, context, remoteUrl, targetBranch) {
+async function commitAndPush(worktree, context, remote, targetBranch) {
     const wd = worktree.path;
     await git(wd, ['add', '-A']);
     const tree = await git(wd, ['write-tree']);
     if (tree === worktree.base.tree)
         return { kind: 'unchanged' };
     const parentArgs = worktree.base.parents.flatMap((p) => ['-p', p]);
-    const identity = ['-c', `user.name=${GIT_USER_NAME}`, '-c', `user.email=${GIT_USER_EMAIL}`];
-    const commit = await git(wd, [...identity, 'commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`]);
-    const args = ['push', '--porcelain', remoteUrl, `${commit}:refs/heads/${targetBranch}`];
-    const push = await runGit(wd, args);
+    const commitArgs = ['commit-tree', tree, ...parentArgs, '-m', `Deploy ${context.versionSlot}`];
+    const commit = await git(wd, commitArgs, { env: DEPLOY_IDENTITY });
+    const args = ['push', '--porcelain', remote.url, `${commit}:refs/heads/${targetBranch}`];
+    const push = await runGit(wd, args, remote);
     if (push.exitCode === 0)
         return { kind: 'pushed' };
     const rejection = staleTipRejection(push.stdout);
@@ -39428,7 +39457,7 @@ async function deploy(config, source) {
         const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
             const rendered = await renderDeployment(worktree.path, config, source.dir);
             // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-            const published = await commitAndPush(worktree, rendered.context, source.remoteUrl, config.targetBranch);
+            const published = await commitAndPush(worktree, rendered.context, source.remote, config.targetBranch);
             return { rendered, published };
         });
         info(`Publish attempt ${attempt}: ${published.kind}`);
@@ -39794,7 +39823,7 @@ function parseInputs() {
         refPatterns,
         basePathMode,
         basePathPrefix: getInput('base-path-prefix'),
-        token: getInput('token'),
+        token: getInput('token', { required: true }),
         repo: process.env.GITHUB_REPOSITORY ?? '',
         ref: process.env.GITHUB_REF ?? '',
         version: getInput('version'),
@@ -39845,7 +39874,7 @@ async function run() {
     }
     const result = await deploy(config, {
         dir: sourceRepoDir,
-        remoteUrl: githubRemoteUrl(config.token, config.repo),
+        remote: githubRemote(config.token, config.repo),
     });
     setOutput('version', result.version);
     setOutput('url', result.url);

@@ -44,7 +44,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
 async function sourceClone(name: string): Promise<SourceRepo> {
   const dir = path.join(root, name);
   await run('git', ['clone', '--quiet', path.join(root, 'origin-src'), dir]);
-  return { dir, remoteUrl: remote };
+  return { dir, remote: { url: remote, config: [] } };
 }
 
 async function siteDir(name: string): Promise<string> {
@@ -175,7 +175,7 @@ describe('concurrent deploys', () => {
 
   it('fails loudly instead of treating an unreachable remote as a first deploy', async () => {
     const config = await configFor('v1.0.0');
-    const source = { ...(await sourceClone('a')), remoteUrl: path.join(root, 'no-such-remote.git') };
+    const source = { ...(await sourceClone('a')), remote: { url: path.join(root, 'no-such-remote.git'), config: [] } };
 
     await expect(deploy(config, source)).rejects.toThrow(/git ls-remote .* failed/);
   });

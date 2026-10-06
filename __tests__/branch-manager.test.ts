@@ -10,7 +10,7 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemoteUrl, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
 import { WIDGET_MARKER } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
@@ -19,11 +19,16 @@ import { readFile } from 'node:fs/promises';
 
 // withWorktree / commitAndPush run against real git in
 // concurrent-deploy.test.ts.
-describe('githubRemoteUrl', () => {
-  it('authenticates with the token as an x-access-token user', () => {
-    expect(githubRemoteUrl('ghs_token123', 'owner/repo')).toBe(
-      'https://x-access-token:ghs_token123@github.com/owner/repo.git',
-    );
+describe('githubRemote', () => {
+  it('keeps the token out of the URL and sends it only as github.com basic auth, replacing any other credential', () => {
+    const remote = githubRemote('ghs_token123', 'owner/repo');
+    expect(remote.url).toBe('https://github.com/owner/repo.git');
+    const basic = Buffer.from('x-access-token:ghs_token123').toString('base64');
+    expect(remote.config).toEqual([
+      ['credential.helper', ''],
+      ['http.https://github.com/.extraheader', ''],
+      ['http.https://github.com/.extraheader', `AUTHORIZATION: basic ${basic}`],
+    ]);
   });
 });
 

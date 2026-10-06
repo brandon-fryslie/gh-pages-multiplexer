@@ -48,7 +48,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
     const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
       const rendered = await renderDeployment(worktree.path, config, source.dir);
       // Stage 5: Commit and push. Manifest + content land in one commit (MNFST-04).
-      const published = await commitAndPush(worktree, rendered.context, source.remoteUrl, config.targetBranch);
+      const published = await commitAndPush(worktree, rendered.context, source.remote, config.targetBranch);
       return { rendered, published };
     });
     core.info(`Publish attempt ${attempt}: ${published.kind}`);
