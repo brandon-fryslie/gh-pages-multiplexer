@@ -39445,17 +39445,21 @@ async function extractCommits(repoDir, currentSha, previousSha, prBaseRef = '') 
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 const PR_VERSION_RE$1 = /^pr-\d+$/;
-// Each attempt loses only to a deploy that pushed while it was rendering, so this bounds how
-// many concurrent deploys one run can lose to before giving up loudly.
-const PUBLISH_ATTEMPTS = 5;
+// Each attempt loses only to a deploy that pushed while it was rendering, so every lost race is
+// another deploy's progress and a burst of N drains in at most N attempts. A count cannot bound
+// that without capping the burst size; elapsed time bounds only a stream of deploys that never ends.
+const PUBLISH_DEADLINE_MS = 10 * 60 * 1000;
 // [LAW:no-ambient-temporal-coupling] Optimistic concurrency: the remote tip is the one owner of
 //   ordering. Every attempt renders the whole deployment (manifest + every derived file) on a fresh
 //   worktree at the current tip and publishes with a non-force push, which the remote accepts only if
 //   the tip has not moved. A moved tip means rebuild from the new tip -- never rebase, because a
 //   rebased commit carries an index/sitemap/health rendered from a manifest that no longer exists.
 async function deploy(config, source) {
+    const startedAt = Date.now();
     let lastRejection = '';
-    for (let attempt = 1; attempt <= PUBLISH_ATTEMPTS; attempt++) {
+    let attempt = 0;
+    while (Date.now() - startedAt < PUBLISH_DEADLINE_MS) {
+        attempt++;
         // Stage 1: a git worktree at the current remote tip, removed when the attempt ends.
         const { rendered, published } = await withWorktree(source, config.targetBranch, async (worktree) => {
             const rendered = await renderDeployment(worktree.path, config, source.dir);
@@ -39463,7 +39467,7 @@ async function deploy(config, source) {
             const published = await commitAndPush(worktree, rendered.context, source.remote, config.targetBranch);
             return { rendered, published };
         });
-        info(`Publish attempt ${attempt}: ${published.kind}`);
+        info(`Publish attempt ${attempt}: ${published.kind} (${Date.now() - startedAt}ms elapsed)`);
         if (published.kind !== 'stale') {
             return {
                 version: rendered.context.versionSlot,
@@ -39476,7 +39480,8 @@ async function deploy(config, source) {
         lastRejection = published.rejection;
         warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
     }
-    throw new Error(`Failed to publish to ${config.targetBranch}: the branch moved during each of ${PUBLISH_ATTEMPTS} attempts ` +
+    throw new Error(`Failed to publish to ${config.targetBranch}: the branch moved during each of ${attempt} attempts ` +
+        `over ${Math.round((Date.now() - startedAt) / 1000)}s ` +
         `(last rejection: ${lastRejection.trim()})`);
 }
 /**

@@ -158,6 +158,18 @@ describe('concurrent deploys', () => {
     expect(manifest.versions.map((v) => v.version).sort()).toEqual(['pr-7', 'v1.0.0']);
   });
 
+  it('a burst of more deploys than any fixed attempt count all land', async () => {
+    const slots = ['v1.0.0', 'v2.0.0', 'v3.0.0', 'v4.0.0', 'v5.0.0', 'v6.0.0', 'v7.0.0'];
+    const runs = await Promise.all(slots.map(async (s) => [await configFor(s), await sourceClone(s)] as const));
+    holdFirstPushes(slots.length);
+    const results = await Promise.all(runs.map(([config, source]) => deploy(config, source)));
+
+    // Every loss is another deploy's win, so the last of N simultaneous deploys publishes on attempt N.
+    expect(Math.max(...results.map((r) => r.attempts))).toBe(slots.length);
+    const manifest = await expectDerivedFilesMatchManifest();
+    expect(manifest.versions.map((v) => v.version).sort()).toEqual(slots);
+  });
+
   it('fails loudly when the push fails for any reason other than a moved tip', async () => {
     const config = await configFor('v1.0.0');
     // A pre-receive hook that declines everything: a rejection that retrying cannot fix.
@@ -180,18 +192,26 @@ describe('concurrent deploys', () => {
     await expect(deploy(config, source)).rejects.toThrow(/git ls-remote .* failed/);
   });
 
-  it('gives up after every attempt loses the race, naming the last rejection', async () => {
+  it('gives up once the publish deadline passes with every attempt losing the race, naming the last rejection', async () => {
     const config = await configFor('v1.0.0');
+    const source = await sourceClone('a');
     const rejection = `!\tdeadbeef:refs/heads/${TARGET}\t[rejected] (fetch first)`;
-    getExecOutputMock.mockImplementation(async (cmd, args, opts) =>
-      args?.[0] === 'push'
-        ? { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' }
-        : realGetExecOutput(cmd, args, opts),
-    );
+    // Each lost race costs four minutes, so the third one crosses the ten-minute deadline.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
+        if (args?.[0] !== 'push') return realGetExecOutput(cmd, args, opts);
+        vi.setSystemTime(Date.now() + 4 * 60 * 1000);
+        return { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' };
+      });
 
-    await expect(deploy(config, await sourceClone('a'))).rejects.toThrow(
-      `the branch moved during each of 5 attempts (last rejection: ${rejection})`,
-    );
+      await expect(deploy(config, source)).rejects.toThrow(
+        `the branch moved during each of 3 attempts over 720s (last rejection: ${rejection})`,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('first deploy creates the branch on the remote without touching local branches or look-alike refs', async () => {
