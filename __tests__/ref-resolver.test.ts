@@ -1,6 +1,6 @@
 // [LAW:behavior-not-structure] Tests assert behavior (sanitization outputs, pattern matching, context shape), not implementation details.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { sanitizeRef, matchesPatterns, resolveContext } from '../src/ref-resolver.js';
+import { refName, sanitizeRef, matchesPatterns, resolveContext } from '../src/ref-resolver.js';
 import type { DeployConfig } from '../src/types.js';
 import { ROOT_ENTRIES } from '../src/root-entries.js';
 
@@ -129,8 +129,11 @@ describe('matchesPatterns', () => {
     expect(matchesPatterns('feature-auth', ['v*'])).toBe(false);
   });
 
-  it('matches anything against *', () => {
-    expect(matchesPatterns('feature-auth', ['*'])).toBe(true);
+  it('* stops at / and ** crosses it, as in workflow branches: filters', () => {
+    expect(matchesPatterns('feature/auth', ['*'])).toBe(false);
+    expect(matchesPatterns('feature/auth', ['feature/*'])).toBe(true);
+    expect(matchesPatterns('feature/auth/oauth', ['feature/*'])).toBe(false);
+    expect(matchesPatterns('feature/auth/oauth', ['**'])).toBe(true);
   });
 
   it('matches if any pattern matches', () => {
@@ -139,6 +142,18 @@ describe('matchesPatterns', () => {
 
   it('empty patterns matches all', () => {
     expect(matchesPatterns('pr-42', [])).toBe(true);
+  });
+});
+
+describe('refName', () => {
+  it.each([
+    ['refs/heads/feature/auth', 'feature/auth'],
+    ['refs/tags/v1.2.3', 'v1.2.3'],
+    ['refs/tags/_versions', '_versions'],
+    ['refs/pull/42/merge', 'pr-42'],
+    ['refs/notes/commits', 'refs/notes/commits'],
+  ])('%s -> %s', (ref, name) => {
+    expect(refName(ref)).toBe(name);
   });
 });
 
@@ -181,10 +196,30 @@ describe('resolveContext', () => {
     expect(ctx.basePath).toBe('/v1/');
   });
 
-  it('throws when ref does not match patterns', () => {
+  it('throws naming the ref name when the ref does not match patterns', () => {
     expect(() =>
-      resolveContext(baseConfig({ ref: 'refs/heads/feature-x', refPatterns: ['v*'] }))
+      resolveContext(baseConfig({ ref: 'refs/heads/feature/x', refPatterns: ['v*'] }))
+    ).toThrow('Ref refs/heads/feature/x (name feature/x) does not match any deployment pattern: v*');
+  });
+
+  it.each([
+    ['refs/heads/feature/auth', 'feature/*', 'feature-auth'],
+    ['refs/tags/_versions', '_*', '~5Fversions'],
+    ['refs/pull/7/merge', 'pr-*', 'pr-7'],
+    ['refs/tags/v2.1.0', 'v*', 'v2.1.0'],
+  ])('ref %s matches pattern %s and deploys to slot %s', (ref, pattern, slot) => {
+    expect(resolveContext(baseConfig({ ref, refPatterns: [pattern] })).versionSlot).toBe(slot);
+  });
+
+  it('patterns match the ref name, not the sanitized slot', () => {
+    expect(() =>
+      resolveContext(baseConfig({ ref: 'refs/heads/feature/auth', refPatterns: ['feature-*'] }))
     ).toThrow(/does not match/);
+  });
+
+  it('empty patterns deploy every ref', () => {
+    const ctx = resolveContext(baseConfig({ ref: 'refs/heads/feature/auth', refPatterns: [] }));
+    expect(ctx.versionSlot).toBe('feature-auth');
   });
 
   it('explicit version overrides ref-derived slot', () => {

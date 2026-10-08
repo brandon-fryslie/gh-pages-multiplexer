@@ -89,7 +89,7 @@ On every push of a `v*` tag, the built site lands at `https://<owner>.github.io/
 |---|---|---|---|
 | `source-dir` | **yes** | — | Directory containing built site to deploy (e.g. `dist`, `public`, `_site`) |
 | `target-branch` | no | `gh-pages` | Branch to deploy to |
-| `ref-patterns` | no | `*` | Comma-separated glob patterns; skip deploy if current ref doesn't match (e.g. `v*,main`). Bypassed when `version` is set. |
+| `ref-patterns` | no | *(all refs)* | Comma-separated glob patterns; skip deploy if current ref doesn't match (e.g. `v*,main,feature/**`). Matched against the branch or tag name, or `pr-<number>` for a pull request; `*` stops at `/` and `**` crosses it, as in workflow `branches:` filters. Bypassed when `version` is set. |
 | `base-path-mode` | no | `base-tag` | How to make deep relative assets resolve. `base-tag` injects `<base href>`. `rewrite` rewrites `href`/`src` attributes directly. `none` skips rewriting entirely — use this when your build already sets the correct absolute base URL at build time. |
 | `base-path-prefix` | no | *(auto)* | Override repo base path. Auto-detected from `GITHUB_REPOSITORY` when unset. |
 | `version` | no | *(auto)* | Explicit version slot name (e.g. `v1.2.3`). When set, overrides the ref-derived slot and bypasses `ref-patterns` filtering. Required when pairing with `base-path-mode: none` so your build can compute the exact matching base URL. |
