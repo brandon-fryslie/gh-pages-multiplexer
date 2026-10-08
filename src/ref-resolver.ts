@@ -77,7 +77,8 @@ export function resolveContext(config: DeployConfig, cname = false): DeploymentC
   //   wrong ref. An explicit version is an explicit decision to deploy, so filtering is bypassed
   //   by encoding "explicit version deploys always match" in the match input.
   const hasExplicitVersion = config.version.length > 0;
-  const versionSlot = sanitizeRef(hasExplicitVersion ? config.version : config.ref);
+  const versionName = hasExplicitVersion ? config.version : config.ref;
+  const versionSlot = sanitizeRef(versionName);
 
   if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
     throw new Error(
@@ -101,6 +102,7 @@ export function resolveContext(config: DeployConfig, cname = false): DeploymentC
 
   return {
     versionSlot,
+    versionName,
     originalRef: config.ref,
     sha: process.env.GITHUB_SHA ?? '',
     timestamp: new Date().toISOString(),

@@ -10,6 +10,7 @@ let sourceDir: string;
 
 const context = (versionSlot = 'v1'): DeploymentContext => ({
   versionSlot,
+  versionName: `refs/tags/${versionSlot}`,
   originalRef: `refs/tags/${versionSlot}`,
   sha: 'abc',
   timestamp: '2026-04-06T00:00:00Z',

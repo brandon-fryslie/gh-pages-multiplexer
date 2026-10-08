@@ -24,7 +24,7 @@ beforeEach(() => {
   });
   vi.mocked(deploy).mockReset();
   vi.mocked(deploy).mockResolvedValue({
-    ref: 'refs/tags/v1.0.0',
+    versionName: 'refs/tags/v1.0.0',
     version: 'v1.0.0',
     url: 'https://owner.github.io/name/v1.0.0/',
     removedVersions: [],
@@ -58,7 +58,7 @@ const stdout = () => stdoutChunks.join('');
 describe('cli main()', () => {
   it('prints one summary line carrying the publish outcome, what placing the nav widget and storage wrapper did, and what the sitemap lists', async () => {
     vi.mocked(deploy).mockResolvedValueOnce({
-      ref: 'refs/tags/v1.0.0',
+      versionName: 'refs/tags/v1.0.0',
       version: 'v1.0.0',
       url: 'https://owner.github.io/name/v1.0.0/',
       removedVersions: [],

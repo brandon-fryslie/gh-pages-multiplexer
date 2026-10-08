@@ -66,7 +66,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
     core.info(`Publish attempt ${attempt} on ${tip}: ${published.kind}`);
     if (published.kind !== 'stale') {
       return {
-        ref: rendered.context.originalRef,
+        versionName: rendered.context.versionName,
         version: rendered.context.versionSlot,
         url: rendered.url,
         removedVersions: rendered.removedVersions,
@@ -87,7 +87,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
 export function deploySummary(result: DeployResult): string {
   const placed = ({ inserted, refreshed, current }: PlacementCounts): string =>
     `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
-  return `Deployed ${result.ref} as ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+  return `Deployed ${result.versionName} as ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
     `nav widget ${placed(result.widget)}; ` +
     `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
     `sitemap ${result.sitemap.urls} URL(s): ${result.sitemap.urls - result.sitemap.fromOlderVersions} from ` +

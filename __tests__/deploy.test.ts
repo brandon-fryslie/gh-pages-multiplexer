@@ -40,6 +40,7 @@ describe('deploy pipeline integration', () => {
   it('manifest and content are co-located for atomic commit', async () => {
     const context: DeploymentContext = {
       versionSlot: 'v1.0.0',
+      versionName: 'refs/tags/v1.0.0',
       originalRef: 'refs/tags/v1.0.0',
       sha: 'abc123',
       timestamp: '2026-04-06T00:00:00Z',
@@ -104,6 +105,7 @@ describe('deploy pipeline integration', () => {
 
     const context: DeploymentContext = {
       versionSlot: 'v1.0.0',
+      versionName: 'refs/tags/v1.0.0',
       originalRef: 'refs/tags/v1.0.0',
       sha: 'abc123',
       timestamp: '2026-04-06T00:00:00Z',

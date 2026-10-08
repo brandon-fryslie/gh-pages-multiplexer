@@ -100,7 +100,7 @@ describe('cli deploy against a real remote', () => {
     expect(await deploy('--ref=refs/tags/_versions')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed ')).map((line) => line.split(' (')[0])).toEqual([
-      'Deployed refs/heads/main as ~76ersions.json to https://owner.github.io/repo/~76ersions.json/',
+      'Deployed versions.json as ~76ersions.json to https://owner.github.io/repo/~76ersions.json/',
       'Deployed refs/tags/_versions as ~5Fversions to https://owner.github.io/repo/~5Fversions/',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
