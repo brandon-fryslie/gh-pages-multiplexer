@@ -1,6 +1,7 @@
 // [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
 //   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
-//   widget and the storage wrapper all find a slot's pages through it.
+//   widget and the storage wrapper all find a slot's pages through it. It is also the one place that
+//   turns a slot page into the absolute URL the sitemap and canonical tags publish.
 // [LAW:no-defensive-null-guards] fs errors propagate; only a manifest slot with no directory reads as zero pages.
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -23,6 +24,16 @@ export async function findSlotHtmlFiles(slotDir: string): Promise<string[]> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT' && (err as NodeJS.ErrnoException).path === slotDir) return [];
     throw err;
   }
+}
+
+/**
+ * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`. Slot and
+ * page names are filesystem names, so every path segment is percent-encoded: a space or `#` in a name
+ * must not end up raw in the URL.
+ */
+export function slotPageUrl(siteBase: string, slot: string, relPath: string): string {
+  const segments = [slot, ...relPath.split('/')];
+  return `${siteBase.replace(/\/$/, '')}/${segments.map(encodeURIComponent).join('/')}`;
 }
 
 export interface PlacedPage {

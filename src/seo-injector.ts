@@ -8,7 +8,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
-import { findSlotHtmlFiles } from './slot-pages.js';
+import { findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
 
 export const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
 export const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
@@ -51,14 +51,15 @@ function insertInHead(html: string, tag: string): string {
 
 /**
  * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at `canonicalBase/<relativePath>`. Idempotent: existing gh-pm canonicals are
+ * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
  * replaced; user-authored canonicals are respected (skipped).
  *
  * Returns the count of files mutated.
  */
 export async function injectCanonicalIntoDir(
   versionDir: string,
-  canonicalBase: string,
+  siteBase: string,
+  canonicalSlot: string,
 ): Promise<number> {
   const htmlFiles = await findSlotHtmlFiles(versionDir);
   if (htmlFiles.length === 0) {
@@ -69,8 +70,7 @@ export async function injectCanonicalIntoDir(
   let count = 0;
   for (const file of htmlFiles) {
     const rel = path.relative(versionDir, file).split(path.sep).join('/');
-    const canonicalUrl = `${canonicalBase.replace(/\/$/, '')}/${rel}`;
-    const tag = buildCanonicalTag(canonicalUrl);
+    const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
 
     const original = await readFile(file, 'utf8');
     // Remove any of our previously-injected canonicals (handles update-on-latest-change).

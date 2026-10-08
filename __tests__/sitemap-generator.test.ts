@@ -95,20 +95,27 @@ describe('renderSitemapXml', () => {
     expect(xml).toContain('<lastmod>2026-04-06</lastmod>');
   });
 
+  it('percent-encodes slot and page names in <loc>', () => {
+    const xml = renderSitemapXml(
+      'https://example.com/repo',
+      'v1 beta',
+      ['docs/my page.html', 'faq#1.html', 'a&b.html'],
+      '2026-04-06T12:00:00Z',
+    );
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/docs/my%20page.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/faq%231.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/a%26b.html</loc>');
+  });
+
   it('emits empty urlset when no HTML files provided', () => {
     const xml = renderSitemapXml('https://example.com', 'v1.0.0', [], '2026-04-06T12:00:00Z');
     expect(xml).toContain('<urlset');
     expect(xml).not.toContain('<url>');
   });
 
-  it('escapes special chars in URLs', () => {
-    const xml = renderSitemapXml(
-      'https://example.com',
-      'v1',
-      ['search.html?q=foo&bar=baz'],
-      '2026-04-06T00:00:00Z',
-    );
-    expect(xml).toContain('&amp;');
+  it('XML-escapes the site base', () => {
+    const xml = renderSitemapXml('https://example.com/a&b', 'v1', ['index.html'], '2026-04-06T00:00:00Z');
+    expect(xml).toContain('<loc>https://example.com/a&amp;b/v1/index.html</loc>');
   });
 });
 

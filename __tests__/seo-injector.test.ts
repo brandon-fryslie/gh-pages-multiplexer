@@ -27,7 +27,7 @@ afterEach(async () => {
 describe('injectCanonicalIntoDir', () => {
   it('injects canonical tag into HTML files', async () => {
     await writeFile(path.join(dir, 'index.html'), '<html><head><title>x</title></head><body>hi</body></html>');
-    const count = await injectCanonicalIntoDir(dir, 'https://example.com/v2.0.0');
+    const count = await injectCanonicalIntoDir(dir, 'https://example.com', 'v2.0.0');
     expect(count).toBe(1);
     const html = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(html).toContain(CANONICAL_MARKER);
@@ -37,16 +37,16 @@ describe('injectCanonicalIntoDir', () => {
   it('uses relative path in canonical URL for nested files', async () => {
     await mkdir(path.join(dir, 'docs'), { recursive: true });
     await writeFile(path.join(dir, 'docs', 'api.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/v1.0.0');
+    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1.0.0');
     const html = await readFile(path.join(dir, 'docs', 'api.html'), 'utf8');
     expect(html).toContain('<link rel="canonical" href="https://example.com/v1.0.0/docs/api.html">');
   });
 
   it('is idempotent — running twice leaves file unchanged', async () => {
     await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/v1');
+    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
     const first = await readFile(path.join(dir, 'index.html'), 'utf8');
-    const secondCount = await injectCanonicalIntoDir(dir, 'https://example.com/v1');
+    const secondCount = await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
     expect(secondCount).toBe(0);
     const second = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(second).toBe(first);
@@ -54,8 +54,8 @@ describe('injectCanonicalIntoDir', () => {
 
   it('updates existing gh-pm canonical when base changes', async () => {
     await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/v1');
-    await injectCanonicalIntoDir(dir, 'https://example.com/v2');
+    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
+    await injectCanonicalIntoDir(dir, 'https://example.com', 'v2');
     const html = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(html).toContain('https://example.com/v2/index.html');
     expect(html).not.toContain('https://example.com/v1/index.html');
@@ -66,7 +66,7 @@ describe('injectCanonicalIntoDir', () => {
   it('respects user-authored canonical tags', async () => {
     const original = '<html><head><link rel="canonical" href="https://mysite.com/my-own-url"></head><body></body></html>';
     await writeFile(path.join(dir, 'index.html'), original);
-    const count = await injectCanonicalIntoDir(dir, 'https://example.com/v1');
+    const count = await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
     expect(count).toBe(0);
     const html = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(html).toBe(original);
@@ -74,12 +74,20 @@ describe('injectCanonicalIntoDir', () => {
 
   it('returns 0 for directory with no HTML files', async () => {
     await writeFile(path.join(dir, 'not-html.txt'), 'hello');
-    expect(await injectCanonicalIntoDir(dir, 'https://example.com/v1')).toBe(0);
+    expect(await injectCanonicalIntoDir(dir, 'https://example.com', 'v1')).toBe(0);
+  });
+
+  it('percent-encodes slot and page names in the canonical URL', async () => {
+    await mkdir(path.join(dir, 'my docs'), { recursive: true });
+    await writeFile(path.join(dir, 'my docs', 'faq#1.html'), '<html><head></head><body></body></html>');
+    await injectCanonicalIntoDir(dir, 'https://example.com/repo', 'v1 beta');
+    const html = await readFile(path.join(dir, 'my docs', 'faq#1.html'), 'utf8');
+    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1%20beta/my%20docs/faq%231.html">');
   });
 
   it('escapes quotes in URLs', async () => {
     await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/v1"evil');
+    await injectCanonicalIntoDir(dir, 'https://example.com/"evil', 'v1');
     const html = await readFile(path.join(dir, 'index.html'), 'utf8');
     expect(html).toContain('&quot;');
     expect(html).not.toMatch(/href="[^"]*"evil/);

@@ -192,12 +192,11 @@ async function renderDeployment(
   const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
   const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
   const latestSlot = latestNonPrSlot(cleanedManifest);
-  const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;
   const nonPrSlots = cleanedManifest.versions
     .filter((v) => !PR_VERSION_RE.test(v.version))
     .map((v) => v.version);
   const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
-  const seoCounts = await applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot);
+  const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
   core.info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
 
   // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.

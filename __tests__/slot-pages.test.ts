@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { findHtmlFiles, findSlotHtmlFiles } from '../src/slot-pages.js';
+import { findHtmlFiles, findSlotHtmlFiles, slotPageUrl } from '../src/slot-pages.js';
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,5 +39,21 @@ describe('findSlotHtmlFiles', () => {
   it('propagates fs errors other than a missing slot directory', async () => {
     await writeFile(path.join(dir, 'not-a-dir'), '');
     await expect(findSlotHtmlFiles(path.join(dir, 'not-a-dir'))).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
+});
+
+describe('slotPageUrl', () => {
+  it('joins site base, slot and page path', () => {
+    expect(slotPageUrl('https://example.com/repo', 'v1.0.0', 'docs/api.html')).toBe('https://example.com/repo/v1.0.0/docs/api.html');
+  });
+
+  it('does not double the slash after a site base ending in /', () => {
+    expect(slotPageUrl('https://example.com/', 'v1', 'index.html')).toBe('https://example.com/v1/index.html');
+  });
+
+  it('percent-encodes each segment but keeps the separators', () => {
+    expect(slotPageUrl('https://example.com', 'v1 beta', 'my docs/faq#1?.html')).toBe(
+      'https://example.com/v1%20beta/my%20docs/faq%231%3F.html',
+    );
   });
 });
