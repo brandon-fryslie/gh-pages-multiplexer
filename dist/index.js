@@ -38049,9 +38049,10 @@ function getWidgetScriptTag(opts) {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
+  // [LAW:single-enforcer] The switcher belongs to the top-level browsing context. A deployed
+  // page framed by another (a live demo in an iframe) would otherwise mount a second drawer.
+  if (window.self !== window.top) return;
   if (customElements.get('gh-pm-nav')) return;
-  var GhPmNav = function(){};
-  GhPmNav.prototype = Object.create(HTMLElement.prototype);
   function defineEl(){
     class GhPmNav extends HTMLElement {
       constructor(){

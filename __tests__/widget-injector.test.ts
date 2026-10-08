@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, readFile, mkdir, chmod, rm } from 'node:fs/promises
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as core from '@actions/core';
+import { JSDOM } from 'jsdom';
 
 vi.mock('@actions/core', () => ({
   info: vi.fn(),
@@ -303,5 +304,38 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     expect(n).toBe(1);
     expect(await readFile(a, 'utf8')).toBe(aContent);
     expect(await readFile(b, 'utf8')).toContain(WIDGET_MARKER);
+  });
+});
+
+// ---- Runtime behavior (jsdom) -----------------------------------------------
+// Runs the real injected script in a top-level document and in a framed one.
+
+describe('injected widget at runtime', () => {
+  const scriptBody = (): string => {
+    const m = /^<script>([\s\S]*)<\/script>$/.exec(getWidgetScriptTag(opts));
+    if (!m) throw new Error('widget tag is not a single <script> element');
+    return m[1];
+  };
+
+  const runIn = (doc: Document): void => {
+    const s = doc.createElement('script');
+    s.textContent = scriptBody();
+    doc.body.appendChild(s);
+  };
+
+  it('mounts one switcher in a top-level document', () => {
+    const dom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'dangerously' });
+    runIn(dom.window.document);
+    expect(dom.window.document.querySelectorAll('gh-pm-nav')).toHaveLength(1);
+  });
+
+  it('mounts no switcher in a framed document', () => {
+    const dom = new JSDOM('<!doctype html><html><body><iframe></iframe></body></html>', {
+      runScripts: 'dangerously',
+    });
+    const frame = dom.window.document.querySelector('iframe')!;
+    const framedDoc = frame.contentDocument!;
+    runIn(framedDoc);
+    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(0);
   });
 });
