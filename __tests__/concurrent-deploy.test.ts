@@ -14,13 +14,13 @@ vi.mock('@actions/core', () => ({
   warning: vi.fn(),
   setSecret: vi.fn(),
 }));
-vi.mock('@actions/exec', async (importOriginal) => {
-  const real = await importOriginal<typeof import('@actions/exec')>();
-  return { ...real, getExecOutput: vi.fn(real.getExecOutput) };
+vi.mock('../src/subprocess.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../src/subprocess.js')>();
+  return { runSubprocess: vi.fn(real.runSubprocess) };
 });
 
 import * as core from '@actions/core';
-import * as exec from '@actions/exec';
+import { runSubprocess } from '../src/subprocess.js';
 import { deploy } from '../src/deploy.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
 import { renderRobotsTxt } from '../src/robots-generator.js';
@@ -28,8 +28,8 @@ import { latestNonPrSlot } from '../src/sitemap-generator.js';
 import type { DeployConfig, Manifest, SourceRepo } from '../src/types.js';
 
 const run = promisify(execFile);
-const getExecOutputMock = vi.mocked(exec.getExecOutput);
-const realGetExecOutput = (await vi.importActual<typeof import('@actions/exec')>('@actions/exec')).getExecOutput;
+const runSubprocessMock = vi.mocked(runSubprocess);
+const realRunSubprocess = (await vi.importActual<typeof import('../src/subprocess.js')>('../src/subprocess.js')).runSubprocess;
 
 const TARGET = 'gh-pages';
 const META = { owner: 'owner', repo: 'repo' };
@@ -81,13 +81,13 @@ function holdFirstPushes(n: number): void {
   let waiting = 0;
   let release!: () => void;
   const allArrived = new Promise<void>((r) => (release = r));
-  getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
-    if (args?.[0] === 'push' && waiting < n) {
+  runSubprocessMock.mockImplementation(async (cmd, args, opts) => {
+    if (args[0] === 'push' && waiting < n) {
       waiting++;
       if (waiting === n) release();
       await allArrived;
     }
-    return realGetExecOutput(cmd, args, opts);
+    return realRunSubprocess(cmd, args, opts);
   });
 }
 
@@ -116,10 +116,10 @@ beforeEach(async () => {
   await run('git', ['init', '--quiet', src]);
   await writeFile(path.join(src, 'README'), 'source\n');
   await git(src, 'add', '.');
-  await git(src, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'init');
+  await git(src, 'commit', '--quiet', '-m', 'init');
   process.env.GITHUB_SHA = await git(src, 'rev-parse', 'HEAD');
-  getExecOutputMock.mockReset();
-  getExecOutputMock.mockImplementation(realGetExecOutput);
+  runSubprocessMock.mockReset();
+  runSubprocessMock.mockImplementation(realRunSubprocess);
 });
 
 afterEach(async () => {
@@ -181,13 +181,13 @@ describe('concurrent deploys', () => {
     // fixed attempt count would have allowed.
     const races = 8;
     let pushes = 0;
-    getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
-      if (args?.[0] === 'push' && pushes++ < races) {
+    runSubprocessMock.mockImplementation(async (cmd, args, opts) => {
+      if (args[0] === 'push' && pushes++ < races) {
         const tip = await git(root, '--git-dir', remote, 'rev-parse', TARGET);
-        const moved = await git(root, '-c', 'user.name=t', '-c', 'user.email=t@t', '--git-dir', remote, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'other deploy');
+        const moved = await git(root, '--git-dir', remote, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'other deploy');
         await git(root, '--git-dir', remote, 'update-ref', `refs/heads/${TARGET}`, moved);
       }
-      return realGetExecOutput(cmd, args, opts);
+      return realRunSubprocess(cmd, args, opts);
     });
 
     expect(await deploy(config, source)).toMatchObject({ outcome: 'pushed', attempts: races + 1 });
@@ -206,7 +206,7 @@ describe('concurrent deploys', () => {
 
     const source = await sourceClone('a');
     await expect(deploy(config, source)).rejects.toThrow(/git push .* failed[\s\S]*policy says no/);
-    const pushes = getExecOutputMock.mock.calls.filter(([, args]) => args?.[0] === 'push');
+    const pushes = runSubprocessMock.mock.calls.filter(([, args]) => args[0] === 'push');
     expect(pushes).toHaveLength(1);
     // The failed attempt's worktree is removed, not left registered in the source repo.
     expect((await git(source.dir, 'worktree', 'list')).split('\n')).toHaveLength(1);
@@ -228,8 +228,8 @@ describe('concurrent deploys', () => {
     // push somewhere other than where ls-remote looks.
     const rejection = `!\tdeadbeef:refs/heads/${TARGET}\t[rejected] (non-fast-forward)`;
     let pushes = 0;
-    getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
-      if (args?.[0] !== 'push') return realGetExecOutput(cmd, args, opts);
+    runSubprocessMock.mockImplementation(async (cmd, args, opts) => {
+      if (args[0] !== 'push') return realRunSubprocess(cmd, args, opts);
       pushes++;
       return { exitCode: 1, stdout: `To remote\n${rejection}\nDone\n`, stderr: '' };
     });
@@ -269,7 +269,7 @@ describe('concurrent deploys', () => {
     const stale = current.replace(widgetBlock, '<script><!-- gh-pages-multiplexer:nav-widget -->var OLD;</script>');
     expect(stale).not.toBe(current);
     await writeFile(page, stale);
-    await git(editor, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-am', 'old widget');
+    await git(editor, 'commit', '--quiet', '-am', 'old widget');
     await git(editor, 'push', '--quiet', 'origin', TARGET);
 
     const result = await deploy(await configFor('v1.0.0'), await sourceClone('a'));

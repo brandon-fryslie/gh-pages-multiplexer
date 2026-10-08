@@ -1,0 +1,5 @@
+# The global git config for every test (vitest.config.ts sets GIT_CONFIG_GLOBAL): commits made by
+# test fixtures need an identity, and a CI runner has none. A repo's own config still outranks this.
+[user]
+	name = t
+	email = t@t

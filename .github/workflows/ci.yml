@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm run check:dist
 
-  # The build only warns on type errors, so the typecheck and the suite gate here.
+  # The build only warns on type errors, so the typecheck and the suite run here.
   test:
     runs-on: ubuntu-latest
     steps:

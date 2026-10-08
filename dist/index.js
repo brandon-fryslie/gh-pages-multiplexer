@@ -3,7 +3,7 @@
 var os = require('os');
 var crypto = require('crypto');
 var fs = require('fs');
-var path = require('path');
+require('path');
 var http = require('http');
 var https = require('https');
 require('net');
@@ -30,9 +30,9 @@ var require$$5$2 = require('node:async_hooks');
 var require$$1$4 = require('node:console');
 var require$$1$5 = require('node:dns');
 var require$$5$3 = require('string_decoder');
-var child = require('child_process');
-var timers$1 = require('timers');
-var path$1 = require('node:path');
+require('child_process');
+require('timers');
+var path = require('node:path');
 var os$1 = require('node:os');
 var node_crypto = require('node:crypto');
 var promises = require('node:fs/promises');
@@ -59,9 +59,6 @@ var os__namespace = /*#__PURE__*/_interopNamespaceDefault(os);
 var crypto__namespace = /*#__PURE__*/_interopNamespaceDefault(crypto);
 var fs__namespace = /*#__PURE__*/_interopNamespaceDefault(fs);
 var path__namespace = /*#__PURE__*/_interopNamespaceDefault(path);
-var events__namespace = /*#__PURE__*/_interopNamespaceDefault(events$1);
-var child__namespace = /*#__PURE__*/_interopNamespaceDefault(child);
-var path__namespace$1 = /*#__PURE__*/_interopNamespaceDefault(path$1);
 var os__namespace$1 = /*#__PURE__*/_interopNamespaceDefault(os$1);
 
 // We use any as a valid input type
@@ -28578,7 +28575,7 @@ var MediaTypes;
 };
 const { access, appendFile, writeFile } = fs.promises;
 
-var __awaiter$4 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28589,138 +28586,10 @@ var __awaiter$4 = (undefined && undefined.__awaiter) || function (thisArg, _argu
 };
 const { chmod, copyFile, lstat, mkdir, open, readdir, rename, rm, rmdir, stat, symlink, unlink } = fs__namespace.promises;
 // export const {open} = 'fs'
-const IS_WINDOWS$1 = process.platform === 'win32';
+process.platform === 'win32';
 fs__namespace.constants.O_RDONLY;
-function exists(fsPath) {
-    return __awaiter$4(this, void 0, void 0, function* () {
-        try {
-            yield stat(fsPath);
-        }
-        catch (err) {
-            if (err.code === 'ENOENT') {
-                return false;
-            }
-            throw err;
-        }
-        return true;
-    });
-}
-/**
- * On OSX/Linux, true if path starts with '/'. On Windows, true for paths like:
- * \, \hello, \\hello\share, C:, and C:\hello (and corresponding alternate separator cases).
- */
-function isRooted(p) {
-    p = normalizeSeparators(p);
-    if (!p) {
-        throw new Error('isRooted() parameter "p" cannot be empty');
-    }
-    if (IS_WINDOWS$1) {
-        return (p.startsWith('\\') || /^[A-Z]:/i.test(p) // e.g. \ or \hello or \\hello
-        ); // e.g. C: or C:\hello
-    }
-    return p.startsWith('/');
-}
-/**
- * Best effort attempt to determine whether a file exists and is executable.
- * @param filePath    file path to check
- * @param extensions  additional file extensions to try
- * @return if file exists and is executable, returns the file path. otherwise empty string.
- */
-function tryGetExecutablePath(filePath, extensions) {
-    return __awaiter$4(this, void 0, void 0, function* () {
-        let stats = undefined;
-        try {
-            // test file exists
-            stats = yield stat(filePath);
-        }
-        catch (err) {
-            if (err.code !== 'ENOENT') {
-                // eslint-disable-next-line no-console
-                console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
-            }
-        }
-        if (stats && stats.isFile()) {
-            if (IS_WINDOWS$1) {
-                // on Windows, test for valid extension
-                const upperExt = path__namespace.extname(filePath).toUpperCase();
-                if (extensions.some(validExt => validExt.toUpperCase() === upperExt)) {
-                    return filePath;
-                }
-            }
-            else {
-                if (isUnixExecutable(stats)) {
-                    return filePath;
-                }
-            }
-        }
-        // try each extension
-        const originalFilePath = filePath;
-        for (const extension of extensions) {
-            filePath = originalFilePath + extension;
-            stats = undefined;
-            try {
-                stats = yield stat(filePath);
-            }
-            catch (err) {
-                if (err.code !== 'ENOENT') {
-                    // eslint-disable-next-line no-console
-                    console.log(`Unexpected error attempting to determine if executable file exists '${filePath}': ${err}`);
-                }
-            }
-            if (stats && stats.isFile()) {
-                if (IS_WINDOWS$1) {
-                    // preserve the case of the actual file (since an extension was appended)
-                    try {
-                        const directory = path__namespace.dirname(filePath);
-                        const upperName = path__namespace.basename(filePath).toUpperCase();
-                        for (const actualName of yield readdir(directory)) {
-                            if (upperName === actualName.toUpperCase()) {
-                                filePath = path__namespace.join(directory, actualName);
-                                break;
-                            }
-                        }
-                    }
-                    catch (err) {
-                        // eslint-disable-next-line no-console
-                        console.log(`Unexpected error attempting to determine the actual case of the file '${filePath}': ${err}`);
-                    }
-                    return filePath;
-                }
-                else {
-                    if (isUnixExecutable(stats)) {
-                        return filePath;
-                    }
-                }
-            }
-        }
-        return '';
-    });
-}
-function normalizeSeparators(p) {
-    p = p || '';
-    if (IS_WINDOWS$1) {
-        // convert slashes on Windows
-        p = p.replace(/\//g, '\\');
-        // remove redundant slashes
-        return p.replace(/\\\\+/g, '\\');
-    }
-    // remove redundant slashes
-    return p.replace(/\/\/+/g, '/');
-}
-// on Mac/Linux, test the execute bit
-//     R   W  X  R  W X R W X
-//   256 128 64 32 16 8 4 2 1
-function isUnixExecutable(stats) {
-    return ((stats.mode & 1) > 0 ||
-        ((stats.mode & 8) > 0 &&
-            process.getgid !== undefined &&
-            stats.gid === process.getgid()) ||
-        ((stats.mode & 64) > 0 &&
-            process.getuid !== undefined &&
-            stats.uid === process.getuid()));
-}
 
-var __awaiter$3 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28729,97 +28598,8 @@ var __awaiter$3 = (undefined && undefined.__awaiter) || function (thisArg, _argu
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-/**
- * Returns path of a tool had the tool actually been invoked.  Resolves via paths.
- * If you check and the tool does not exist, it will throw.
- *
- * @param     tool              name of the tool
- * @param     check             whether to check if tool exists
- * @returns   Promise<string>   path to tool
- */
-function which(tool, check) {
-    return __awaiter$3(this, void 0, void 0, function* () {
-        if (!tool) {
-            throw new Error("parameter 'tool' is required");
-        }
-        // recursive when check=true
-        if (check) {
-            const result = yield which(tool, false);
-            if (!result) {
-                if (IS_WINDOWS$1) {
-                    throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also verify the file has a valid extension for an executable file.`);
-                }
-                else {
-                    throw new Error(`Unable to locate executable file: ${tool}. Please verify either the file path exists or the file can be found within a directory specified by the PATH environment variable. Also check the file mode to verify the file is executable.`);
-                }
-            }
-            return result;
-        }
-        const matches = yield findInPath(tool);
-        if (matches && matches.length > 0) {
-            return matches[0];
-        }
-        return '';
-    });
-}
-/**
- * Returns a list of all occurrences of the given tool on the system path.
- *
- * @returns   Promise<string[]>  the paths of the tool
- */
-function findInPath(tool) {
-    return __awaiter$3(this, void 0, void 0, function* () {
-        if (!tool) {
-            throw new Error("parameter 'tool' is required");
-        }
-        // build the list of extensions to try
-        const extensions = [];
-        if (IS_WINDOWS$1 && process.env['PATHEXT']) {
-            for (const extension of process.env['PATHEXT'].split(path__namespace.delimiter)) {
-                if (extension) {
-                    extensions.push(extension);
-                }
-            }
-        }
-        // if it's rooted, return it if exists. otherwise return empty.
-        if (isRooted(tool)) {
-            const filePath = yield tryGetExecutablePath(tool, extensions);
-            if (filePath) {
-                return [filePath];
-            }
-            return [];
-        }
-        // if any path separators, return empty
-        if (tool.includes(path__namespace.sep)) {
-            return [];
-        }
-        // build the list of directories
-        //
-        // Note, technically "where" checks the current directory on Windows. From a toolkit perspective,
-        // it feels like we should not do this. Checking the current directory seems like more of a use
-        // case of a shell, and the which() function exposed by the toolkit should strive for consistency
-        // across platforms.
-        const directories = [];
-        if (process.env.PATH) {
-            for (const p of process.env.PATH.split(path__namespace.delimiter)) {
-                if (p) {
-                    directories.push(p);
-                }
-            }
-        }
-        // find all matches
-        const matches = [];
-        for (const directory of directories) {
-            const filePath = yield tryGetExecutablePath(path__namespace.join(directory, tool), extensions);
-            if (filePath) {
-                matches.push(filePath);
-            }
-        }
-        return matches;
-    });
-}
 
-var __awaiter$2 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -28829,577 +28609,9 @@ var __awaiter$2 = (undefined && undefined.__awaiter) || function (thisArg, _argu
     });
 };
 /* eslint-disable @typescript-eslint/unbound-method */
-const IS_WINDOWS = process.platform === 'win32';
-/*
- * Class for running command line tools. Handles quoting and arg parsing in a platform agnostic way.
- */
-class ToolRunner extends events__namespace.EventEmitter {
-    constructor(toolPath, args, options) {
-        super();
-        if (!toolPath) {
-            throw new Error("Parameter 'toolPath' cannot be null or empty.");
-        }
-        this.toolPath = toolPath;
-        this.args = args || [];
-        this.options = options || {};
-    }
-    _debug(message) {
-        if (this.options.listeners && this.options.listeners.debug) {
-            this.options.listeners.debug(message);
-        }
-    }
-    _getCommandString(options, noPrefix) {
-        const toolPath = this._getSpawnFileName();
-        const args = this._getSpawnArgs(options);
-        let cmd = noPrefix ? '' : '[command]'; // omit prefix when piped to a second tool
-        if (IS_WINDOWS) {
-            // Windows + cmd file
-            if (this._isCmdFile()) {
-                cmd += toolPath;
-                for (const a of args) {
-                    cmd += ` ${a}`;
-                }
-            }
-            // Windows + verbatim
-            else if (options.windowsVerbatimArguments) {
-                cmd += `"${toolPath}"`;
-                for (const a of args) {
-                    cmd += ` ${a}`;
-                }
-            }
-            // Windows (regular)
-            else {
-                cmd += this._windowsQuoteCmdArg(toolPath);
-                for (const a of args) {
-                    cmd += ` ${this._windowsQuoteCmdArg(a)}`;
-                }
-            }
-        }
-        else {
-            // OSX/Linux - this can likely be improved with some form of quoting.
-            // creating processes on Unix is fundamentally different than Windows.
-            // on Unix, execvp() takes an arg array.
-            cmd += toolPath;
-            for (const a of args) {
-                cmd += ` ${a}`;
-            }
-        }
-        return cmd;
-    }
-    _processLineBuffer(data, strBuffer, onLine) {
-        try {
-            let s = strBuffer + data.toString();
-            let n = s.indexOf(os__namespace.EOL);
-            while (n > -1) {
-                const line = s.substring(0, n);
-                onLine(line);
-                // the rest of the string ...
-                s = s.substring(n + os__namespace.EOL.length);
-                n = s.indexOf(os__namespace.EOL);
-            }
-            return s;
-        }
-        catch (err) {
-            // streaming lines to console is best effort.  Don't fail a build.
-            this._debug(`error processing line. Failed with error ${err}`);
-            return '';
-        }
-    }
-    _getSpawnFileName() {
-        if (IS_WINDOWS) {
-            if (this._isCmdFile()) {
-                return process.env['COMSPEC'] || 'cmd.exe';
-            }
-        }
-        return this.toolPath;
-    }
-    _getSpawnArgs(options) {
-        if (IS_WINDOWS) {
-            if (this._isCmdFile()) {
-                let argline = `/D /S /C "${this._windowsQuoteCmdArg(this.toolPath)}`;
-                for (const a of this.args) {
-                    argline += ' ';
-                    argline += options.windowsVerbatimArguments
-                        ? a
-                        : this._windowsQuoteCmdArg(a);
-                }
-                argline += '"';
-                return [argline];
-            }
-        }
-        return this.args;
-    }
-    _endsWith(str, end) {
-        return str.endsWith(end);
-    }
-    _isCmdFile() {
-        const upperToolPath = this.toolPath.toUpperCase();
-        return (this._endsWith(upperToolPath, '.CMD') ||
-            this._endsWith(upperToolPath, '.BAT'));
-    }
-    _windowsQuoteCmdArg(arg) {
-        // for .exe, apply the normal quoting rules that libuv applies
-        if (!this._isCmdFile()) {
-            return this._uvQuoteCmdArg(arg);
-        }
-        // otherwise apply quoting rules specific to the cmd.exe command line parser.
-        // the libuv rules are generic and are not designed specifically for cmd.exe
-        // command line parser.
-        //
-        // for a detailed description of the cmd.exe command line parser, refer to
-        // http://stackoverflow.com/questions/4094699/how-does-the-windows-command-interpreter-cmd-exe-parse-scripts/7970912#7970912
-        // need quotes for empty arg
-        if (!arg) {
-            return '""';
-        }
-        // determine whether the arg needs to be quoted
-        const cmdSpecialChars = [
-            ' ',
-            '\t',
-            '&',
-            '(',
-            ')',
-            '[',
-            ']',
-            '{',
-            '}',
-            '^',
-            '=',
-            ';',
-            '!',
-            "'",
-            '+',
-            ',',
-            '`',
-            '~',
-            '|',
-            '<',
-            '>',
-            '"'
-        ];
-        let needsQuotes = false;
-        for (const char of arg) {
-            if (cmdSpecialChars.some(x => x === char)) {
-                needsQuotes = true;
-                break;
-            }
-        }
-        // short-circuit if quotes not needed
-        if (!needsQuotes) {
-            return arg;
-        }
-        // the following quoting rules are very similar to the rules that by libuv applies.
-        //
-        // 1) wrap the string in quotes
-        //
-        // 2) double-up quotes - i.e. " => ""
-        //
-        //    this is different from the libuv quoting rules. libuv replaces " with \", which unfortunately
-        //    doesn't work well with a cmd.exe command line.
-        //
-        //    note, replacing " with "" also works well if the arg is passed to a downstream .NET console app.
-        //    for example, the command line:
-        //          foo.exe "myarg:""my val"""
-        //    is parsed by a .NET console app into an arg array:
-        //          [ "myarg:\"my val\"" ]
-        //    which is the same end result when applying libuv quoting rules. although the actual
-        //    command line from libuv quoting rules would look like:
-        //          foo.exe "myarg:\"my val\""
-        //
-        // 3) double-up slashes that precede a quote,
-        //    e.g.  hello \world    => "hello \world"
-        //          hello\"world    => "hello\\""world"
-        //          hello\\"world   => "hello\\\\""world"
-        //          hello world\    => "hello world\\"
-        //
-        //    technically this is not required for a cmd.exe command line, or the batch argument parser.
-        //    the reasons for including this as a .cmd quoting rule are:
-        //
-        //    a) this is optimized for the scenario where the argument is passed from the .cmd file to an
-        //       external program. many programs (e.g. .NET console apps) rely on the slash-doubling rule.
-        //
-        //    b) it's what we've been doing previously (by deferring to node default behavior) and we
-        //       haven't heard any complaints about that aspect.
-        //
-        // note, a weakness of the quoting rules chosen here, is that % is not escaped. in fact, % cannot be
-        // escaped when used on the command line directly - even though within a .cmd file % can be escaped
-        // by using %%.
-        //
-        // the saving grace is, on the command line, %var% is left as-is if var is not defined. this contrasts
-        // the line parsing rules within a .cmd file, where if var is not defined it is replaced with nothing.
-        //
-        // one option that was explored was replacing % with ^% - i.e. %var% => ^%var^%. this hack would
-        // often work, since it is unlikely that var^ would exist, and the ^ character is removed when the
-        // variable is used. the problem, however, is that ^ is not removed when %* is used to pass the args
-        // to an external program.
-        //
-        // an unexplored potential solution for the % escaping problem, is to create a wrapper .cmd file.
-        // % can be escaped within a .cmd file.
-        let reverse = '"';
-        let quoteHit = true;
-        for (let i = arg.length; i > 0; i--) {
-            // walk the string in reverse
-            reverse += arg[i - 1];
-            if (quoteHit && arg[i - 1] === '\\') {
-                reverse += '\\'; // double the slash
-            }
-            else if (arg[i - 1] === '"') {
-                quoteHit = true;
-                reverse += '"'; // double the quote
-            }
-            else {
-                quoteHit = false;
-            }
-        }
-        reverse += '"';
-        return reverse.split('').reverse().join('');
-    }
-    _uvQuoteCmdArg(arg) {
-        // Tool runner wraps child_process.spawn() and needs to apply the same quoting as
-        // Node in certain cases where the undocumented spawn option windowsVerbatimArguments
-        // is used.
-        //
-        // Since this function is a port of quote_cmd_arg from Node 4.x (technically, lib UV,
-        // see https://github.com/nodejs/node/blob/v4.x/deps/uv/src/win/process.c for details),
-        // pasting copyright notice from Node within this function:
-        //
-        //      Copyright Joyent, Inc. and other Node contributors. All rights reserved.
-        //
-        //      Permission is hereby granted, free of charge, to any person obtaining a copy
-        //      of this software and associated documentation files (the "Software"), to
-        //      deal in the Software without restriction, including without limitation the
-        //      rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-        //      sell copies of the Software, and to permit persons to whom the Software is
-        //      furnished to do so, subject to the following conditions:
-        //
-        //      The above copyright notice and this permission notice shall be included in
-        //      all copies or substantial portions of the Software.
-        //
-        //      THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-        //      IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-        //      FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-        //      AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-        //      LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-        //      FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-        //      IN THE SOFTWARE.
-        if (!arg) {
-            // Need double quotation for empty argument
-            return '""';
-        }
-        if (!arg.includes(' ') && !arg.includes('\t') && !arg.includes('"')) {
-            // No quotation needed
-            return arg;
-        }
-        if (!arg.includes('"') && !arg.includes('\\')) {
-            // No embedded double quotes or backslashes, so I can just wrap
-            // quote marks around the whole thing.
-            return `"${arg}"`;
-        }
-        // Expected input/output:
-        //   input : hello"world
-        //   output: "hello\"world"
-        //   input : hello""world
-        //   output: "hello\"\"world"
-        //   input : hello\world
-        //   output: hello\world
-        //   input : hello\\world
-        //   output: hello\\world
-        //   input : hello\"world
-        //   output: "hello\\\"world"
-        //   input : hello\\"world
-        //   output: "hello\\\\\"world"
-        //   input : hello world\
-        //   output: "hello world\\" - note the comment in libuv actually reads "hello world\"
-        //                             but it appears the comment is wrong, it should be "hello world\\"
-        let reverse = '"';
-        let quoteHit = true;
-        for (let i = arg.length; i > 0; i--) {
-            // walk the string in reverse
-            reverse += arg[i - 1];
-            if (quoteHit && arg[i - 1] === '\\') {
-                reverse += '\\';
-            }
-            else if (arg[i - 1] === '"') {
-                quoteHit = true;
-                reverse += '\\';
-            }
-            else {
-                quoteHit = false;
-            }
-        }
-        reverse += '"';
-        return reverse.split('').reverse().join('');
-    }
-    _cloneExecOptions(options) {
-        options = options || {};
-        const result = {
-            cwd: options.cwd || process.cwd(),
-            env: options.env || process.env,
-            silent: options.silent || false,
-            windowsVerbatimArguments: options.windowsVerbatimArguments || false,
-            failOnStdErr: options.failOnStdErr || false,
-            ignoreReturnCode: options.ignoreReturnCode || false,
-            delay: options.delay || 10000
-        };
-        result.outStream = options.outStream || process.stdout;
-        result.errStream = options.errStream || process.stderr;
-        return result;
-    }
-    _getSpawnOptions(options, toolPath) {
-        options = options || {};
-        const result = {};
-        result.cwd = options.cwd;
-        result.env = options.env;
-        result['windowsVerbatimArguments'] =
-            options.windowsVerbatimArguments || this._isCmdFile();
-        if (options.windowsVerbatimArguments) {
-            result.argv0 = `"${toolPath}"`;
-        }
-        return result;
-    }
-    /**
-     * Exec a tool.
-     * Output will be streamed to the live console.
-     * Returns promise with return code
-     *
-     * @param     tool     path to tool to exec
-     * @param     options  optional exec options.  See ExecOptions
-     * @returns   number
-     */
-    exec() {
-        return __awaiter$2(this, void 0, void 0, function* () {
-            // root the tool path if it is unrooted and contains relative pathing
-            if (!isRooted(this.toolPath) &&
-                (this.toolPath.includes('/') ||
-                    (IS_WINDOWS && this.toolPath.includes('\\')))) {
-                // prefer options.cwd if it is specified, however options.cwd may also need to be rooted
-                this.toolPath = path__namespace.resolve(process.cwd(), this.options.cwd || process.cwd(), this.toolPath);
-            }
-            // if the tool is only a file name, then resolve it from the PATH
-            // otherwise verify it exists (add extension on Windows if necessary)
-            this.toolPath = yield which(this.toolPath, true);
-            return new Promise((resolve, reject) => __awaiter$2(this, void 0, void 0, function* () {
-                this._debug(`exec tool: ${this.toolPath}`);
-                this._debug('arguments:');
-                for (const arg of this.args) {
-                    this._debug(`   ${arg}`);
-                }
-                const optionsNonNull = this._cloneExecOptions(this.options);
-                if (!optionsNonNull.silent && optionsNonNull.outStream) {
-                    optionsNonNull.outStream.write(this._getCommandString(optionsNonNull) + os__namespace.EOL);
-                }
-                const state = new ExecState(optionsNonNull, this.toolPath);
-                state.on('debug', (message) => {
-                    this._debug(message);
-                });
-                if (this.options.cwd && !(yield exists(this.options.cwd))) {
-                    return reject(new Error(`The cwd: ${this.options.cwd} does not exist!`));
-                }
-                const fileName = this._getSpawnFileName();
-                const cp = child__namespace.spawn(fileName, this._getSpawnArgs(optionsNonNull), this._getSpawnOptions(this.options, fileName));
-                let stdbuffer = '';
-                if (cp.stdout) {
-                    cp.stdout.on('data', (data) => {
-                        if (this.options.listeners && this.options.listeners.stdout) {
-                            this.options.listeners.stdout(data);
-                        }
-                        if (!optionsNonNull.silent && optionsNonNull.outStream) {
-                            optionsNonNull.outStream.write(data);
-                        }
-                        stdbuffer = this._processLineBuffer(data, stdbuffer, (line) => {
-                            if (this.options.listeners && this.options.listeners.stdline) {
-                                this.options.listeners.stdline(line);
-                            }
-                        });
-                    });
-                }
-                let errbuffer = '';
-                if (cp.stderr) {
-                    cp.stderr.on('data', (data) => {
-                        state.processStderr = true;
-                        if (this.options.listeners && this.options.listeners.stderr) {
-                            this.options.listeners.stderr(data);
-                        }
-                        if (!optionsNonNull.silent &&
-                            optionsNonNull.errStream &&
-                            optionsNonNull.outStream) {
-                            const s = optionsNonNull.failOnStdErr
-                                ? optionsNonNull.errStream
-                                : optionsNonNull.outStream;
-                            s.write(data);
-                        }
-                        errbuffer = this._processLineBuffer(data, errbuffer, (line) => {
-                            if (this.options.listeners && this.options.listeners.errline) {
-                                this.options.listeners.errline(line);
-                            }
-                        });
-                    });
-                }
-                cp.on('error', (err) => {
-                    state.processError = err.message;
-                    state.processExited = true;
-                    state.processClosed = true;
-                    state.CheckComplete();
-                });
-                cp.on('exit', (code) => {
-                    state.processExitCode = code;
-                    state.processExited = true;
-                    this._debug(`Exit code ${code} received from tool '${this.toolPath}'`);
-                    state.CheckComplete();
-                });
-                cp.on('close', (code) => {
-                    state.processExitCode = code;
-                    state.processExited = true;
-                    state.processClosed = true;
-                    this._debug(`STDIO streams have closed for tool '${this.toolPath}'`);
-                    state.CheckComplete();
-                });
-                state.on('done', (error, exitCode) => {
-                    if (stdbuffer.length > 0) {
-                        this.emit('stdline', stdbuffer);
-                    }
-                    if (errbuffer.length > 0) {
-                        this.emit('errline', errbuffer);
-                    }
-                    cp.removeAllListeners();
-                    if (error) {
-                        reject(error);
-                    }
-                    else {
-                        resolve(exitCode);
-                    }
-                });
-                if (this.options.input) {
-                    if (!cp.stdin) {
-                        throw new Error('child process missing stdin');
-                    }
-                    cp.stdin.end(this.options.input);
-                }
-            }));
-        });
-    }
-}
-/**
- * Convert an arg string to an array of args. Handles escaping
- *
- * @param    argString   string of arguments
- * @returns  string[]    array of arguments
- */
-function argStringToArray(argString) {
-    const args = [];
-    let inQuotes = false;
-    let escaped = false;
-    let arg = '';
-    function append(c) {
-        // we only escape double quotes.
-        if (escaped && c !== '"') {
-            arg += '\\';
-        }
-        arg += c;
-        escaped = false;
-    }
-    for (let i = 0; i < argString.length; i++) {
-        const c = argString.charAt(i);
-        if (c === '"') {
-            if (!escaped) {
-                inQuotes = !inQuotes;
-            }
-            else {
-                append(c);
-            }
-            continue;
-        }
-        if (c === '\\' && escaped) {
-            append(c);
-            continue;
-        }
-        if (c === '\\' && inQuotes) {
-            escaped = true;
-            continue;
-        }
-        if (c === ' ' && !inQuotes) {
-            if (arg.length > 0) {
-                args.push(arg);
-                arg = '';
-            }
-            continue;
-        }
-        append(c);
-    }
-    if (arg.length > 0) {
-        args.push(arg.trim());
-    }
-    return args;
-}
-class ExecState extends events__namespace.EventEmitter {
-    constructor(options, toolPath) {
-        super();
-        this.processClosed = false; // tracks whether the process has exited and stdio is closed
-        this.processError = '';
-        this.processExitCode = 0;
-        this.processExited = false; // tracks whether the process has exited
-        this.processStderr = false; // tracks whether stderr was written to
-        this.delay = 10000; // 10 seconds
-        this.done = false;
-        this.timeout = null;
-        if (!toolPath) {
-            throw new Error('toolPath must not be empty');
-        }
-        this.options = options;
-        this.toolPath = toolPath;
-        if (options.delay) {
-            this.delay = options.delay;
-        }
-    }
-    CheckComplete() {
-        if (this.done) {
-            return;
-        }
-        if (this.processClosed) {
-            this._setResult();
-        }
-        else if (this.processExited) {
-            this.timeout = timers$1.setTimeout(ExecState.HandleTimeout, this.delay, this);
-        }
-    }
-    _debug(message) {
-        this.emit('debug', message);
-    }
-    _setResult() {
-        // determine whether there is an error
-        let error;
-        if (this.processExited) {
-            if (this.processError) {
-                error = new Error(`There was an error when attempting to execute the process '${this.toolPath}'. This may indicate the process failed to start. Error: ${this.processError}`);
-            }
-            else if (this.processExitCode !== 0 && !this.options.ignoreReturnCode) {
-                error = new Error(`The process '${this.toolPath}' failed with exit code ${this.processExitCode}`);
-            }
-            else if (this.processStderr && this.options.failOnStdErr) {
-                error = new Error(`The process '${this.toolPath}' failed because one or more lines were written to the STDERR stream`);
-            }
-        }
-        // clear the timeout
-        if (this.timeout) {
-            clearTimeout(this.timeout);
-            this.timeout = null;
-        }
-        this.done = true;
-        this.emit('done', error, this.processExitCode);
-    }
-    static HandleTimeout(state) {
-        if (state.done) {
-            return;
-        }
-        if (!state.processClosed && state.processExited) {
-            const message = `The STDIO streams did not close within ${state.delay / 1000} seconds of the exit event from process '${state.toolPath}'. This may indicate a child process inherited the STDIO streams and has not yet exited.`;
-            state._debug(message);
-        }
-        state._setResult();
-    }
-}
+process.platform === 'win32';
 
-var __awaiter$1 = (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
+(undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
         function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
@@ -29408,73 +28620,6 @@ var __awaiter$1 = (undefined && undefined.__awaiter) || function (thisArg, _argu
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
-/**
- * Exec a command.
- * Output will be streamed to the live console.
- * Returns promise with return code
- *
- * @param     commandLine        command to execute (can include additional args). Must be correctly escaped.
- * @param     args               optional arguments for tool. Escaping is handled by the lib.
- * @param     options            optional exec options.  See ExecOptions
- * @returns   Promise<number>    exit code
- */
-function exec$1(commandLine, args, options) {
-    return __awaiter$1(this, void 0, void 0, function* () {
-        const commandArgs = argStringToArray(commandLine);
-        if (commandArgs.length === 0) {
-            throw new Error(`Parameter 'commandLine' cannot be null or empty.`);
-        }
-        // Path to tool to execute should be first arg
-        const toolPath = commandArgs[0];
-        args = commandArgs.slice(1).concat(args || []);
-        const runner = new ToolRunner(toolPath, args, options);
-        return runner.exec();
-    });
-}
-/**
- * Exec a command and get the output.
- * Output will be streamed to the live console.
- * Returns promise with the exit code and collected stdout and stderr
- *
- * @param     commandLine           command to execute (can include additional args). Must be correctly escaped.
- * @param     args                  optional arguments for tool. Escaping is handled by the lib.
- * @param     options               optional exec options.  See ExecOptions
- * @returns   Promise<ExecOutput>   exit code, stdout, and stderr
- */
-function getExecOutput(commandLine, args, options) {
-    return __awaiter$1(this, void 0, void 0, function* () {
-        var _a, _b;
-        let stdout = '';
-        let stderr = '';
-        //Using string decoder covers the case where a mult-byte character is split
-        const stdoutDecoder = new require$$5$3.StringDecoder('utf8');
-        const stderrDecoder = new require$$5$3.StringDecoder('utf8');
-        const originalStdoutListener = (_a = options === null || options === void 0 ? void 0 : options.listeners) === null || _a === void 0 ? void 0 : _a.stdout;
-        const originalStdErrListener = (_b = options === null || options === void 0 ? void 0 : options.listeners) === null || _b === void 0 ? void 0 : _b.stderr;
-        const stdErrListener = (data) => {
-            stderr += stderrDecoder.write(data);
-            if (originalStdErrListener) {
-                originalStdErrListener(data);
-            }
-        };
-        const stdOutListener = (data) => {
-            stdout += stdoutDecoder.write(data);
-            if (originalStdoutListener) {
-                originalStdoutListener(data);
-            }
-        };
-        const listeners = Object.assign(Object.assign({}, options === null || options === void 0 ? void 0 : options.listeners), { stdout: stdOutListener, stderr: stdErrListener });
-        const exitCode = yield exec$1(commandLine, args, Object.assign(Object.assign({}, options), { listeners }));
-        //flush any remaining characters
-        stdout += stdoutDecoder.end();
-        stderr += stderrDecoder.end();
-        return {
-            exitCode,
-            stdout,
-            stderr
-        };
-    });
-}
 
 (undefined && undefined.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
@@ -37829,7 +36974,7 @@ async function findHtmlFiles(dir) {
     const entries = await promises.readdir(dir, { recursive: true, withFileTypes: true });
     return entries
         .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.html'))
-        .map((entry) => path__namespace$1.join(entry.parentPath, entry.name));
+        .map((entry) => path__namespace.join(entry.parentPath, entry.name));
 }
 // A slot listed in versions.json can have no directory: git does not track empty directories, so a
 // slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
@@ -37849,7 +36994,7 @@ async function findSlotHtmlFiles(slotDir) {
  */
 async function findHtmlFilesRelative(slotDir) {
     const files = await findSlotHtmlFiles(slotDir);
-    return files.map((file) => path__namespace$1.relative(slotDir, file).split(path__namespace$1.sep).join('/')).sort();
+    return files.map((file) => path__namespace.relative(slotDir, file).split(path__namespace.sep).join('/')).sort();
 }
 /**
  * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`
@@ -38770,7 +37915,7 @@ async function injectCanonicalTags(workdir, siteBase, copies) {
     for (const { page, versions } of copies) {
         const tag = buildCanonicalTag(slotPageUrl(siteBase, versions[0], page));
         for (const slot of versions) {
-            const file = path$1.join(workdir, slot, page);
+            const file = path.join(workdir, slot, page);
             const original = await promises.readFile(file, 'utf8');
             // Remove any of our previously-injected canonicals (handles update-on-latest-change).
             const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
@@ -39005,6 +38150,30 @@ async function placeStorageWrapperInSlot(slotDir, opts, coverage) {
     return counts;
 }
 
+// [LAW:effects-at-boundaries] The one place a child process is spawned for git (see branch-manager).
+/**
+ * Run `command` to completion and collect its output. stdin is the null device, so the child reads
+ * EOF at once: there is no pipe for it to close before a write (EPIPE) or to wait on forever (a hang).
+ * A non-zero exit is an answer the caller interprets; failing to spawn, or a death by signal, rejects.
+ */
+function runSubprocess(command, args, options) {
+    return new Promise((resolve, reject) => {
+        const child = node_child_process.spawn(command, args, { ...options, stdio: ['ignore', 'pipe', 'pipe'] });
+        const stdout = [];
+        const stderr = [];
+        child.stdout.on('data', (chunk) => stdout.push(chunk));
+        child.stderr.on('data', (chunk) => stderr.push(chunk));
+        child.on('error', reject);
+        child.on('close', (code, signal) => {
+            if (code === null) {
+                reject(new Error(`${command} ${args.join(' ')} was killed by ${signal}`));
+                return;
+            }
+            resolve({ exitCode: code, stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') });
+        });
+    });
+}
+
 // [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
 //   commit -> push pipeline. Whether the target branch exists is *data* -- the commit's base
 //   (parents + tree) -- never a condition that picks a different sequence of git operations.
@@ -39049,19 +38218,15 @@ function gitFailure(args, out) {
     return new Error(`git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
 }
 /**
- * The one way git is run. Nothing is written to stdin: git can exit before reading it, and the
- * resulting EPIPE is raised on a stream @actions/exec gives no way to handle -- an uncaught
- * exception. Silent, so a command line is never echoed to stdout; never prompts, since a
- * prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
+ * The one way git is run. Its stdin is the null device (see runSubprocess) and it never prompts,
+ * since a prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
  * its children, unlike `-c` arguments, which any local user can read in the process table.
  */
 function runGit(cwd, args, { config = [], env = {} } = {}) {
     const inherited = Number(process.env.GIT_CONFIG_COUNT ?? 0);
     const configEnv = Object.fromEntries(config.flatMap(([key, value], i) => [[`GIT_CONFIG_KEY_${inherited + i}`, key], [`GIT_CONFIG_VALUE_${inherited + i}`, value]]));
-    return getExecOutput('git', args, {
+    return runSubprocess('git', args, {
         cwd,
-        ignoreReturnCode: true,
-        silent: true,
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...configEnv, GIT_CONFIG_COUNT: String(inherited + config.length), ...env },
     });
 }
@@ -39082,16 +38247,6 @@ async function git(cwd, args, run = {}) {
         throw gitFailure(args, out);
     return out.stdout.trim();
 }
-/** Writes the empty tree from an index that does not exist yet, so no stdin is needed (see runGit). */
-async function emptyTree(cwd) {
-    const index = path__namespace$1.join(os__namespace$1.tmpdir(), `gh-pages-empty-index-${node_crypto.randomUUID()}`);
-    try {
-        return await git(cwd, ['write-tree'], { env: { GIT_INDEX_FILE: index } });
-    }
-    finally {
-        await promises.rm(index, { force: true });
-    }
-}
 async function resolveBase(source, targetBranch) {
     const { remote } = source;
     const ref = `refs/heads/${targetBranch}`;
@@ -39100,7 +38255,7 @@ async function resolveBase(source, targetBranch) {
     const probe = await gitAnswer(source.dir, ['ls-remote', '--exit-code', remote.url, ref], { 0: true, 2: false }, remote);
     if (!probe.answer) {
         info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
-        return { parents: [], tree: await emptyTree(source.dir) };
+        return { parents: [], tree: await git(source.dir, ['mktree']) };
     }
     // The base is the tip ls-remote saw, fetched by id: no ref and no FETCH_HEAD in the source repo
     // is written or read, so nothing else touching the clone can change what the deploy builds on.
@@ -39118,7 +38273,7 @@ async function resolveBase(source, targetBranch) {
  */
 async function withWorktree(source, targetBranch, use) {
     const base = await resolveBase(source, targetBranch);
-    const worktree = { path: path__namespace$1.join(os__namespace$1.tmpdir(), `gh-pages-${node_crypto.randomUUID()}`), base };
+    const worktree = { path: path__namespace.join(os__namespace$1.tmpdir(), `gh-pages-${node_crypto.randomUUID()}`), base };
     // --no-checkout leaves the index empty; read-tree then makes index and files exactly the base tree.
     await git(source.dir, ['worktree', 'add', '--detach', '--no-checkout', worktree.path, 'HEAD']);
     try {
@@ -39174,7 +38329,7 @@ async function commitAndPush(worktree, context, remote, targetBranch) {
  */
 async function readCnameFile(workdir) {
     try {
-        const raw = await promises.readFile(path__namespace$1.join(workdir, ROOT_ENTRIES.cname), 'utf8');
+        const raw = await promises.readFile(path__namespace.join(workdir, ROOT_ENTRIES.cname), 'utf8');
         return raw.trim();
     }
     catch (err) {
@@ -39192,7 +38347,7 @@ async function readCnameFile(workdir) {
 async function removeVersionDirectories(workdir, versions) {
     let removed = 0;
     for (const slot of versions) {
-        const target = path__namespace$1.join(workdir, slot);
+        const target = path__namespace.join(workdir, slot);
         await promises.rm(target, { recursive: true, force: true });
         removed++;
     }
@@ -39208,7 +38363,7 @@ async function removeVersionDirectories(workdir, versions) {
 async function renameVersionDirectories(workdir, siteRoot, renames) {
     const renamed = [];
     for (const { from, to } of renames) {
-        const fromDir = path__namespace$1.join(workdir, from);
+        const fromDir = path__namespace.join(workdir, from);
         let pages = 0;
         for (const file of await findSlotHtmlFiles(fromDir)) {
             const html = await promises.readFile(file, 'utf8');
@@ -39217,7 +38372,7 @@ async function renameVersionDirectories(workdir, siteRoot, renames) {
             pages += Number(rebased !== html);
         }
         try {
-            await promises.rename(fromDir, path__namespace$1.join(workdir, to));
+            await promises.rename(fromDir, path__namespace.join(workdir, to));
         }
         catch (err) {
             const e = err;
@@ -39237,17 +38392,17 @@ async function renameVersionDirectories(workdir, siteRoot, renames) {
 async function writeIndexHtml(workdir, manifest, repoMeta) {
     // Root index.html redirects to the latest non-PR version.
     const redirectHtml = renderRedirectHtml(manifest);
-    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.redirect), redirectHtml, 'utf8');
+    await promises.writeFile(path__namespace.join(workdir, ROOT_ENTRIES.redirect), redirectHtml, 'utf8');
     // Version listing lives at _versions/index.html — still accessible, just not the root.
-    const versionsDir = path__namespace$1.join(workdir, ROOT_ENTRIES.versionIndex);
+    const versionsDir = path__namespace.join(workdir, ROOT_ENTRIES.versionIndex);
     await promises.mkdir(versionsDir, { recursive: true });
     const listingHtml = renderIndexHtml(manifest, repoMeta);
-    await promises.writeFile(path__namespace$1.join(versionsDir, 'index.html'), listingHtml, 'utf8');
+    await promises.writeFile(path__namespace.join(versionsDir, 'index.html'), listingHtml, 'utf8');
 }
 async function injectWidgetIntoSlots(workdir, siteRoot, slots, customization) {
     const total = emptyPlacementCounts();
     for (const slot of slots) {
-        addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
+        addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace.join(workdir, slot), {
             siteRoot,
             manifestPath: ROOT_ENTRIES.manifest,
             indexPath: `${ROOT_ENTRIES.versionIndex}/`,
@@ -39266,7 +38421,7 @@ async function placeStorageWrapperInSlots(workdir, repoMeta, slots) {
     const total = emptyPlacementCounts();
     for (const { slot, coverage } of slots) {
         const opts = { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, slot) };
-        addPlacementCounts(total, await placeStorageWrapperInSlot(path__namespace$1.join(workdir, slot), opts, coverage));
+        addPlacementCounts(total, await placeStorageWrapperInSlot(path__namespace.join(workdir, slot), opts, coverage));
     }
     return total;
 }
@@ -39279,20 +38434,20 @@ async function placeStorageWrapperInSlots(workdir, repoMeta, slots) {
  */
 async function writeRobotsTxt(workdir, manifest, siteRoot) {
     const txt = renderRobotsTxt(manifest, siteRoot);
-    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.robots), txt, 'utf8');
+    await promises.writeFile(path__namespace.join(workdir, ROOT_ENTRIES.robots), txt, 'utf8');
 }
 /**
  * The pages of each slot in `slots`, in the given order. A slot with no directory has no pages.
  */
 async function readSlotPages(workdir, slots) {
-    return Promise.all(slots.map(async (slot) => ({ slot, pages: await findHtmlFilesRelative(path__namespace$1.join(workdir, slot)) })));
+    return Promise.all(slots.map(async (slot) => ({ slot, pages: await findHtmlFilesRelative(path__namespace.join(workdir, slot)) })));
 }
 /**
  * Write sitemap.xml at the worktree root, listing the canonical copy of every page in `copies`.
  * No non-PR version means no copies and an empty urlset.
  */
 async function writeSitemapXml(workdir, copies, baseUrl, lastmod) {
-    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.sitemap), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
+    await promises.writeFile(path__namespace.join(workdir, ROOT_ENTRIES.sitemap), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
 }
 /**
  * Write _health.json at the worktree root. Pure projection of the manifest +
@@ -39300,17 +38455,17 @@ async function writeSitemapXml(workdir, copies, baseUrl, lastmod) {
  */
 async function writeHealthJson(workdir, manifest, generatedAt) {
     const record = renderHealth(manifest, generatedAt);
-    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.health), serializeHealth(record), 'utf8');
+    await promises.writeFile(path__namespace.join(workdir, ROOT_ENTRIES.health), serializeHealth(record), 'utf8');
 }
 /**
  * Write the client-side stats dashboard at _versions/stats.html. The rendered
  * page is static HTML + inline JS that fetches versions.json at runtime.
  */
 async function writeStatsHtml(workdir, repoMeta) {
-    const versionsDir = path__namespace$1.join(workdir, ROOT_ENTRIES.versionIndex);
+    const versionsDir = path__namespace.join(workdir, ROOT_ENTRIES.versionIndex);
     await promises.mkdir(versionsDir, { recursive: true });
     const html = renderStatsHtml(repoMeta);
-    await promises.writeFile(path__namespace$1.join(versionsDir, 'stats.html'), html, 'utf8');
+    await promises.writeFile(path__namespace.join(versionsDir, 'stats.html'), html, 'utf8');
 }
 /**
  * Inject/update canonical URLs on every copy of every page in `copies`, pointing at the page's
@@ -39323,7 +38478,7 @@ async function applySeoTags(workdir, copies, siteBase, currentPrSlot) {
     const canonicalCount = await injectCanonicalTags(workdir, siteBase, copies);
     let noindexCount = 0;
     if (currentPrSlot !== null) {
-        const prDir = path__namespace$1.join(workdir, currentPrSlot);
+        const prDir = path__namespace.join(workdir, currentPrSlot);
         noindexCount = await injectNoindexIntoDir(prDir);
     }
     return { canonicalCount, noindexCount };
@@ -39336,7 +38491,7 @@ async function applySeoTags(workdir, copies, siteBase, currentPrSlot) {
  * does not exist. Throws if schema is not 1 (T-01-06).
  */
 async function readManifest(workdir) {
-    const file = path$1.join(workdir, ROOT_ENTRIES.manifest);
+    const file = path.join(workdir, ROOT_ENTRIES.manifest);
     let raw;
     try {
         raw = await promises.readFile(file, 'utf8');
@@ -39385,7 +38540,7 @@ function removeVersions(manifest, versions) {
  * Write the manifest to workdir/versions.json as formatted JSON.
  */
 async function writeManifest(workdir, manifest) {
-    const file = path$1.join(workdir, ROOT_ENTRIES.manifest);
+    const file = path.join(workdir, ROOT_ENTRIES.manifest);
     await promises.writeFile(file, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 }
 /**
@@ -39423,7 +38578,7 @@ function renameUnsafeSlots(manifest) {
  * (CNAME, versions.json, etc.) are preserved (DEPL-01, Pitfall 4, Pitfall 5).
  */
 async function placeContent(workdir, sourceDir, context, basePathMode) {
-    const target = path$1.join(workdir, context.versionSlot);
+    const target = path.join(workdir, context.versionSlot);
     // Idempotent redeploy: clear the slot before copying.
     await promises.rm(target, { recursive: true, force: true });
     // Copy source tree into the version slot.
@@ -39438,11 +38593,11 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
     const htmlFiles = await findHtmlFiles(target);
     for (const file of htmlFiles) {
         const html = await promises.readFile(file, 'utf8');
-        const corrected = transform(html, context.basePath, path$1.basename(file));
+        const corrected = transform(html, context.basePath, path.basename(file));
         await promises.writeFile(file, corrected, 'utf8');
     }
     // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
-    await promises.writeFile(path$1.join(workdir, ROOT_ENTRIES.nojekyll), '', { flag: 'a' });
+    await promises.writeFile(path.join(workdir, ROOT_ENTRIES.nojekyll), '', { flag: 'a' });
 }
 function selectTransform(mode) {
     if (mode === 'base-tag') {
@@ -39473,7 +38628,7 @@ async function isShallowRepo(repoDir) {
     // unshallows) is NOT a real shallow clone. Only a non-empty shallow list means history
     // is actually truncated.
     try {
-        const shallowPath = path$1.join(repoDir, '.git', 'shallow');
+        const shallowPath = path.join(repoDir, '.git', 'shallow');
         const s = await promises.stat(shallowPath);
         if (s.size === 0)
             return false;
