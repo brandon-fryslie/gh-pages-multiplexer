@@ -34129,10 +34129,12 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
         release: config.release, // undefined when not a tag or no release exists → key omitted from JSON
     };
     // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
-    //   read → add new entry → remove stale entries → write. Both always run;
+    //   read → remove stale entries → add new entry → write. Both always run;
     //   empty cleanupVersions = identity transform in removeVersions.
-    const withNewEntry = updateManifest(currentManifest, entry);
-    const cleanedManifest = removeVersions(withNewEntry, config.cleanupVersions);
+    // [LAW:one-source-of-truth] Same order as the directories: cleanup removes, then placeContent
+    //   writes the deployed slot. A deployed slot that is also stale (a closed PR's late run) is
+    //   removed and republished in both, so no slot directory exists without its manifest entry.
+    const cleanedManifest = updateManifest(removeVersions(currentManifest, config.cleanupVersions), entry);
     await writeManifest(workdir, cleanedManifest);
     // Remove stale version directories from the worktree.
     // [LAW:single-enforcer] Worktree I/O goes through branch-manager.
