@@ -32580,20 +32580,6 @@ function getWidgetScriptTag(opts) {
     const HTML = safe(SHADOW_HTML);
     return `<script>${WIDGET_MARKER}
 (function(){
-  // The drawer belongs to the outermost page of this site. A deployed page framed by a
-  // same-origin page (a live demo in an iframe) leaves the drawer to it; framed by another
-  // origin (an embedding portal, an editor preview), it is the visitor's only switcher.
-  if (framedBySameOrigin()) {
-    console.debug('gh-pm-nav: framed by a same-origin page; the switcher is left to the top window');
-    return;
-  }
-  function framedBySameOrigin(){
-    if (window.self === window.top) return false;
-    // Reading a cross-origin window's location throws SecurityError: that throw is the answer.
-    // [LAW:no-silent-failure] Any other error is not, and propagates.
-    try { return window.top.location.origin === window.location.origin; }
-    catch (e) { if (e && e.name === 'SecurityError') return false; throw e; }
-  }
   var MANIFEST_URL = ${M};
   var INDEX_URL = ${I};
   var CURRENT = ${C};
@@ -32719,8 +32705,40 @@ function getWidgetScriptTag(opts) {
     customElements.define('gh-pm-nav', GhPmNav);
   }
   defineEl();
-  var el = document.createElement('gh-pm-nav');
-  (document.body || document.documentElement).appendChild(el);
+  // One drawer per visible stack of pages. A deployed page framed by a same-origin page that
+  // shows the drawer (a live demo in an iframe) leaves it to that page. Framed by any other
+  // page (an embedding portal, an editor preview, a project site sharing the <user>.github.io
+  // origin without the widget), it is the visitor's only switcher and mounts.
+  var ancestors = sameOriginAncestors();
+  // [LAW:no-ambient-temporal-coupling] Each page publishes when its own decision is settled;
+  // a descendant awaits every ancestor's parse and settlement, then reads the element itself.
+  window.__ghPmNavSettled = Promise.all(ancestors.map(function(w){
+    return parsed(w.document)
+      .then(function(){ return w.__ghPmNavSettled; })
+      .then(function(){ return w.document.querySelector('gh-pm-nav') !== null; });
+  })).then(function(shownAbove){
+    if (shownAbove.indexOf(true) !== -1) {
+      console.debug('gh-pm-nav: a same-origin ancestor shows the switcher; not mounting');
+      return;
+    }
+    (document.body || document.documentElement).appendChild(document.createElement('gh-pm-nav'));
+  });
+  function sameOriginAncestors(){
+    var out = [];
+    for (var w = window; w !== w.top; w = w.parent) if (sameOrigin(w.parent)) out.push(w.parent);
+    return out;
+  }
+  function sameOrigin(w){
+    // Reading a cross-origin window's origin throws SecurityError: that throw is the answer.
+    // [LAW:no-silent-failure] Any other error is not, and propagates.
+    try { return w.origin === window.origin; }
+    catch (e) { if (e && e.name === 'SecurityError') return false; throw e; }
+  }
+  function parsed(doc){
+    return doc.readyState !== 'loading' ? Promise.resolve() : new Promise(function(resolve){
+      doc.addEventListener('DOMContentLoaded', resolve, { once: true });
+    });
+  }
 })();
 </script>`;
 }

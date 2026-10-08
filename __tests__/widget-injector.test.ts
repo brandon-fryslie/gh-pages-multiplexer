@@ -308,13 +308,15 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
 });
 
 // ---- Runtime behavior (jsdom) -----------------------------------------------
-// Runs the real injected script in a top-level document and in a same-origin framed one.
+// Runs the real injected script in top-level and framed documents.
 
 describe('injected widget at runtime', () => {
   const doms: JSDOM[] = [];
   afterEach(() => {
     for (const dom of doms.splice(0)) dom.window.close();
   });
+
+  const YIELDED = 'gh-pm-nav: a same-origin ancestor shows the switcher; not mounting';
 
   const scriptBody = (): string => {
     const m = /^<script>([\s\S]*)<\/script>$/.exec(getWidgetScriptTag(opts));
@@ -337,20 +339,61 @@ describe('injected widget at runtime', () => {
     doc.body.appendChild(s);
   };
 
-  it('mounts one switcher in a top-level document', () => {
+  // The widget publishes when its mount decision is settled; tests await that, not a timer.
+  const settled = (doc: Document): Promise<void> =>
+    (doc.defaultView as unknown as { __ghPmNavSettled: Promise<void> }).__ghPmNavSettled;
+
+  const frameOf = (dom: JSDOM): Document =>
+    dom.window.document.querySelector('iframe')!.contentDocument!;
+
+  it('mounts one switcher in a top-level document', async () => {
     const { dom, debug } = load('<!doctype html><html><body></body></html>');
     runIn(dom.window.document);
+    await settled(dom.window.document);
     expect(dom.window.document.querySelectorAll('gh-pm-nav')).toHaveLength(1);
     expect(debug).toEqual([]);
   });
 
-  it('leaves the switcher to the top window when framed by a same-origin page', () => {
+  it('leaves the switcher to a same-origin parent that shows one', async () => {
     const { dom, debug } = load('<!doctype html><html><body><iframe></iframe></body></html>');
-    const framedDoc = dom.window.document.querySelector('iframe')!.contentDocument!;
+    runIn(dom.window.document);
+    await settled(dom.window.document);
+    const framedDoc = frameOf(dom);
     runIn(framedDoc);
+    await settled(framedDoc);
     expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(0);
-    expect(debug).toEqual([
-      'gh-pm-nav: framed by a same-origin page; the switcher is left to the top window',
-    ]);
+    expect(debug).toEqual([YIELDED]);
+  });
+
+  it('mounts in a frame whose same-origin parent has no widget', async () => {
+    // A sibling project site on a shared <user>.github.io origin embedding a deployed page.
+    const { dom, debug } = load('<!doctype html><html><body><iframe></iframe></body></html>');
+    const framedDoc = frameOf(dom);
+    runIn(framedDoc);
+    await settled(framedDoc);
+    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(1);
+    expect(debug).toEqual([]);
+  });
+
+  // jsdom drains microtasks only after the whole parent has parsed, so this pins document
+  // order, not the DOMContentLoaded wait: a browser is needed to see that race.
+  it('yields to a parent whose widget runs after the frame', async () => {
+    const body = JSON.stringify(scriptBody()).replace(/</g, '\\u003c');
+    const { dom, debug } = load(`<!doctype html><html><body><iframe></iframe>
+<script>
+  var framed = document.querySelector('iframe').contentDocument;
+  var s = framed.createElement('script');
+  s.textContent = ${body};
+  framed.body.appendChild(s);
+  window.parentStateWhenFrameRan = document.readyState;
+</script>
+${getWidgetScriptTag(opts)}</body></html>`);
+    const framedDoc = frameOf(dom);
+    await settled(framedDoc);
+    expect((dom.window as unknown as { parentStateWhenFrameRan: string }).parentStateWhenFrameRan)
+      .toBe('loading');
+    expect(dom.window.document.querySelectorAll('gh-pm-nav')).toHaveLength(1);
+    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(0);
+    expect(debug).toEqual([YIELDED]);
   });
 });
