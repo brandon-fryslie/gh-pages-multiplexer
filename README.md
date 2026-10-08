@@ -388,7 +388,7 @@ This tool's whole purpose is **accumulation**: `v1/`, `v2/`, `pr-42/`, `main/`, 
 git clone https://github.com/brandon-fryslie/gh-pages-multiplexer
 cd gh-pages-multiplexer
 pnpm install
-pnpm test             # 165 tests across unit + E2E pipeline fixtures
+pnpm test             # typechecks src and tests (tsc), then runs the vitest suite
 pnpm run build        # produces dist/index.js (Action) and dist/cli.js (CLI)
 ```
 
