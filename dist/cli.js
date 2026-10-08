@@ -32589,6 +32589,8 @@ function getWidgetScriptTag(opts) {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
+  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
+  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
@@ -32702,37 +32704,39 @@ function getWidgetScriptTag(opts) {
         this._rows.innerHTML = html;
       }
     }
+    GhPmNav.site = SITE;
     customElements.define('gh-pm-nav', GhPmNav);
   }
   defineEl();
-  // One drawer per visible stack of pages. A deployed page framed by a same-origin page that
-  // shows the drawer (a live demo in an iframe) leaves it to that page. Framed by any other
-  // page (an embedding portal, an editor preview, a project site sharing the <user>.github.io
-  // origin without the widget), it is the visitor's only switcher and mounts.
-  var ancestors = sameOriginAncestors();
-  // [LAW:no-ambient-temporal-coupling] Each page publishes when its own decision is settled;
-  // a descendant awaits every ancestor's parse and settlement, then reads the element itself.
-  window.__ghPmNavSettled = Promise.all(ancestors.map(function(w){
-    return parsed(w.document)
-      .then(function(){ return w.__ghPmNavSettled; })
-      .then(function(){ return w.document.querySelector('gh-pm-nav') !== null; });
-  })).then(function(shownAbove){
-    if (shownAbove.indexOf(true) !== -1) {
-      console.debug('gh-pm-nav: a same-origin ancestor shows the switcher; not mounting');
-      return;
-    }
+  // One drawer per site per visible stack of pages. A deployed page framed by a same-origin page
+  // already running this site's switcher (a live demo in an iframe) leaves the drawer to it.
+  // Framed by anything else (an embedding portal, an editor preview, another project on the
+  // shared <user>.github.io origin), it is the visitor's only switcher for this site and mounts.
+  var ancestors = sameOriginAncestorDocs();
+  // [LAW:no-ambient-temporal-coupling] An ancestor registers gh-pm-nav while it parses, so its
+  // registry is read only after its DOMContentLoaded; before that, absence would be a race.
+  Promise.all(ancestors.map(function(doc){
+    return parsed(doc).then(function(){
+      var def = doc.defaultView.customElements.get('gh-pm-nav');
+      return def !== undefined && def.site === SITE;
+    });
+  })).then(function(runsSite){
+    var owner = ancestors[runsSite.indexOf(true)];
+    console.debug('gh-pm-nav', {
+      site: SITE,
+      sameOriginAncestors: ancestors.length,
+      mounted: !owner,
+      yieldedTo: owner ? owner.URL : null
+    });
+    if (owner) return;
     (document.body || document.documentElement).appendChild(document.createElement('gh-pm-nav'));
   });
-  function sameOriginAncestors(){
-    var out = [];
-    for (var w = window; w !== w.top; w = w.parent) if (sameOrigin(w.parent)) out.push(w.parent);
-    return out;
-  }
-  function sameOrigin(w){
-    // Reading a cross-origin window's origin throws SecurityError: that throw is the answer.
-    // [LAW:no-silent-failure] Any other error is not, and propagates.
-    try { return w.origin === window.origin; }
-    catch (e) { if (e && e.name === 'SecurityError') return false; throw e; }
+  // frameElement is the containing element only when its document is same-origin (null at the
+  // top and across an origin boundary), and unlike window.parent no host script can replace it.
+  function sameOriginAncestorDocs(){
+    var docs = [];
+    for (var f = window.frameElement; f; f = f.ownerDocument.defaultView.frameElement) docs.push(f.ownerDocument);
+    return docs;
   }
   function parsed(doc){
     return doc.readyState !== 'loading' ? Promise.resolve() : new Promise(function(resolve){

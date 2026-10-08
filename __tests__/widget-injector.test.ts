@@ -3,7 +3,7 @@ import { mkdtemp, writeFile, readFile, mkdir, chmod, rm } from 'node:fs/promises
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as core from '@actions/core';
-import { JSDOM, VirtualConsole } from 'jsdom';
+import { JSDOM, VirtualConsole, requestInterceptor } from 'jsdom';
 
 vi.mock('@actions/core', () => ({
   info: vi.fn(),
@@ -308,92 +308,124 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
 });
 
 // ---- Runtime behavior (jsdom) -----------------------------------------------
-// Runs the real injected script in top-level and framed documents.
+// Serves pages at real URLs and runs the real injected script in them, top-level and framed.
 
 describe('injected widget at runtime', () => {
+  type Decision = { site: string; sameOriginAncestors: number; mounted: boolean; yieldedTo: string | null };
+
+  const SITE = 'https://u.github.io/repo/v1.0.0/';
+  const WIDGET = getWidgetScriptTag(opts);
+  const page = (body: string): string => `<!doctype html><html><body>${body}</body></html>`;
+  const widgetBody = (): string => {
+    const m = /^<script>([\s\S]*)<\/script>$/.exec(WIDGET);
+    if (!m) throw new Error('widget tag is not a single <script> element');
+    return m[1];
+  };
+
   const doms: JSDOM[] = [];
   afterEach(() => {
     for (const dom of doms.splice(0)) dom.window.close();
   });
 
-  const YIELDED = 'gh-pm-nav: a same-origin ancestor shows the switcher; not mounting';
-
-  const scriptBody = (): string => {
-    const m = /^<script>([\s\S]*)<\/script>$/.exec(getWidgetScriptTag(opts));
-    if (!m) throw new Error('widget tag is not a single <script> element');
-    return m[1];
-  };
-
-  const load = (html: string): { dom: JSDOM; debug: string[] } => {
-    const debug: string[] = [];
+  // Every page and script is served from `pages`; a Promise value holds the response back.
+  const load = (url: string, pages: Record<string, string | Promise<string>>) => {
+    const decisions: Decision[] = [];
     const virtualConsole = new VirtualConsole();
-    virtualConsole.on('debug', (msg: string) => debug.push(msg));
-    const dom = new JSDOM(html, { runScripts: 'dangerously', virtualConsole });
+    virtualConsole.on('debug', (tag: string, fact: Decision) => {
+      if (tag === 'gh-pm-nav') decisions.push(fact);
+    });
+    const served = requestInterceptor(async (request: Request) => {
+      if (!(request.url in pages)) throw new Error(`unexpected fetch ${request.url}`);
+      const body = await pages[request.url];
+      const type = request.url.endsWith('.js') ? 'text/javascript' : 'text/html';
+      return new Response(body, { headers: { 'content-type': type } });
+    });
+    const dom = new JSDOM(pages[url] as string, {
+      url,
+      runScripts: 'dangerously',
+      resources: { interceptors: [served] },
+      virtualConsole,
+    });
     doms.push(dom);
-    return { dom, debug };
+    // Each widget emits exactly one decision; wait for that, not a timer.
+    const decided = (n: number): Promise<Decision[]> =>
+      new Promise((resolve) => {
+        const check = (): void => {
+          if (decisions.length >= n) resolve(decisions);
+        };
+        virtualConsole.on('debug', check);
+        check();
+      });
+    const navs = (doc: Document): number => doc.querySelectorAll('gh-pm-nav').length;
+    const frame = (): Document => dom.window.document.querySelector('iframe')!.contentDocument!;
+    return { dom, decided, navs, frame, virtualConsole };
   };
 
-  const runIn = (doc: Document): void => {
-    const s = doc.createElement('script');
-    s.textContent = scriptBody();
-    doc.body.appendChild(s);
-  };
-
-  // The widget publishes when its mount decision is settled; tests await that, not a timer.
-  const settled = (doc: Document): Promise<void> =>
-    (doc.defaultView as unknown as { __ghPmNavSettled: Promise<void> }).__ghPmNavSettled;
-
-  const frameOf = (dom: JSDOM): Document =>
-    dom.window.document.querySelector('iframe')!.contentDocument!;
-
-  it('mounts one switcher in a top-level document', async () => {
-    const { dom, debug } = load('<!doctype html><html><body></body></html>');
-    runIn(dom.window.document);
-    await settled(dom.window.document);
-    expect(dom.window.document.querySelectorAll('gh-pm-nav')).toHaveLength(1);
-    expect(debug).toEqual([]);
+  it('mounts one switcher in a top-level page', async () => {
+    const { dom, decided, navs } = load(SITE, { [SITE]: page(WIDGET) });
+    expect(await decided(1)).toEqual([
+      { site: '/repo', sameOriginAncestors: 0, mounted: true, yieldedTo: null },
+    ]);
+    expect(navs(dom.window.document)).toBe(1);
   });
 
-  it('leaves the switcher to a same-origin parent that shows one', async () => {
-    const { dom, debug } = load('<!doctype html><html><body><iframe></iframe></body></html>');
-    runIn(dom.window.document);
-    await settled(dom.window.document);
-    const framedDoc = frameOf(dom);
-    runIn(framedDoc);
-    await settled(framedDoc);
-    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(0);
-    expect(debug).toEqual([YIELDED]);
+  it('leaves the switcher to a parent running the same site\'s widget, at any depth', async () => {
+    const { dom, decided, navs, frame } = load(SITE, {
+      [SITE]: page(`<iframe src="demo/live.html"></iframe>${WIDGET}`),
+      [`${SITE}demo/live.html`]: page(WIDGET),
+    });
+    expect(await decided(2)).toContainEqual(
+      { site: '/repo', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
+    );
+    expect(navs(dom.window.document)).toBe(1);
+    expect(navs(frame())).toBe(0);
   });
 
   it('mounts in a frame whose same-origin parent has no widget', async () => {
-    // A sibling project site on a shared <user>.github.io origin embedding a deployed page.
-    const { dom, debug } = load('<!doctype html><html><body><iframe></iframe></body></html>');
-    const framedDoc = frameOf(dom);
-    runIn(framedDoc);
-    await settled(framedDoc);
-    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(1);
-    expect(debug).toEqual([]);
+    // Another project site on the shared <user>.github.io origin embedding a deployed page.
+    const blog = 'https://u.github.io/blog/';
+    const { decided, navs, frame } = load(blog, {
+      [blog]: page(`<iframe src="${SITE}"></iframe>`),
+      [SITE]: page(WIDGET),
+    });
+    expect(await decided(1)).toEqual([
+      { site: '/repo', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
+    ]);
+    expect(navs(frame())).toBe(1);
   });
 
-  // jsdom drains microtasks only after the whole parent has parsed, so this pins document
-  // order, not the DOMContentLoaded wait: a browser is needed to see that race.
-  it('yields to a parent whose widget runs after the frame', async () => {
-    const body = JSON.stringify(scriptBody()).replace(/</g, '\\u003c');
-    const { dom, debug } = load(`<!doctype html><html><body><iframe></iframe>
-<script>
-  var framed = document.querySelector('iframe').contentDocument;
-  var s = framed.createElement('script');
-  s.textContent = ${body};
-  framed.body.appendChild(s);
-  window.parentStateWhenFrameRan = document.readyState;
-</script>
-${getWidgetScriptTag(opts)}</body></html>`);
-    const framedDoc = frameOf(dom);
-    await settled(framedDoc);
-    expect((dom.window as unknown as { parentStateWhenFrameRan: string }).parentStateWhenFrameRan)
-      .toBe('loading');
-    expect(dom.window.document.querySelectorAll('gh-pm-nav')).toHaveLength(1);
-    expect(framedDoc.querySelectorAll('gh-pm-nav')).toHaveLength(0);
-    expect(debug).toEqual([YIELDED]);
+  it('mounts in a frame whose same-origin parent runs another site\'s widget', async () => {
+    const other = 'https://u.github.io/other/v1.0.0/';
+    const { decided, navs, frame } = load(other, {
+      [other]: page(`<iframe src="${SITE}"></iframe>${WIDGET}`),
+      [SITE]: page(WIDGET),
+    });
+    expect(await decided(2)).toContainEqual(
+      { site: '/repo', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
+    );
+    expect(navs(frame())).toBe(1);
+  });
+
+  it('waits for a parent still parsing toward its own widget', async () => {
+    // The parent's widget is a blocking external script released only once the frame has
+    // loaded, so the frame decides while the parent is still parsing.
+    let release!: (body: string) => void;
+    const held = new Promise<string>((r) => (release = r));
+    const { dom, decided, navs, frame, virtualConsole } = load(SITE, {
+      [SITE]: page(
+        `<iframe src="demo/live.html" onload="console.log('frame-loaded')"></iframe>` +
+          `<script src="widget.js"></script>`,
+      ),
+      [`${SITE}demo/live.html`]: page(WIDGET),
+      [`${SITE}widget.js`]: held,
+    });
+    virtualConsole.on('log', (msg: string) => {
+      if (msg === 'frame-loaded') release(widgetBody());
+    });
+    expect(await decided(2)).toContainEqual(
+      { site: '/repo', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
+    );
+    expect(navs(dom.window.document)).toBe(1);
+    expect(navs(frame())).toBe(0);
   });
 });
