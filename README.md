@@ -222,7 +222,7 @@ Note: the CLI never posts PR preview comments — that's an Action-only feature 
 
 ## How versions are named
 
-The version subdirectory is derived from the git ref (or the `version` input), sanitized so the name is safe both as a directory and as a URL path segment. Letters, digits, `.`, `_`, `~`, `@`, `+` and `-` are kept, and every other character is written as `~XX` for each of its UTF-8 bytes (percent-encoding with `~` in place of `%`), so no two refs share a name and non-ASCII refs keep theirs:
+The version subdirectory is derived from the git ref (or the `version` input), sanitized so the name is safe both as a directory and as a URL path segment. Letters, digits, `.`, `_`, `~`, `@`, `+` and `-` are kept, and every other character is written as `~XX` for each of its UTF-8 bytes (percent-encoding with `~` in place of `%`), so no character is dropped and non-ASCII refs keep their names. A `/` still becomes `-`, so `feature/auth` and `feature-auth` share a version:
 
 | Ref | Version directory |
 |---|---|

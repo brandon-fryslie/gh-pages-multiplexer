@@ -37484,7 +37484,7 @@ const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/gu;
 /**
  * `~XX` for each UTF-8 byte of `char`: percent-encoding with `~` as the escape character, so the
  * escape is itself made of slot characters and a ref loses nothing (`v1#rc` -> `v1~23rc`,
- * `日` -> `~E6~97~A5`). Git refs cannot contain `~`, so no ref's escape collides with another ref.
+ * `日` -> `~E6~97~A5`). Git refs cannot contain `~`, so an escape never reads as characters a ref wrote literally.
  */
 function escapeSlotChar(char) {
     return [...new TextEncoder().encode(char)].map((byte) => `~${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
