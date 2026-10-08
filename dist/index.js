@@ -38035,8 +38035,9 @@ function getWidgetScriptTag(opts) {
     const labelResolved = opts.label || DEFAULT_WIDGET_LABEL;
     const positionResolved = opts.position || DEFAULT_WIDGET_POSITION;
     const colorResolved = opts.color || DEFAULT_WIDGET_COLOR;
-    const M = safe(opts.manifestUrl);
-    const I = safe(opts.indexUrl);
+    const R = safe(opts.siteRoot);
+    const M = safe(opts.siteRoot + opts.manifestPath);
+    const I = safe(opts.siteRoot + opts.indexPath);
     const C = safe(opts.currentVersion);
     const ICON = safe(iconResolved);
     const LABEL = safe(labelResolved);
@@ -38046,6 +38047,11 @@ function getWidgetScriptTag(opts) {
     const HTML = safe(SHADOW_HTML);
     return `<script>${WIDGET_MARKER}
 (function(){
+  // Root-relative URLs fixed at deploy time: a page at any depth, at any served URL, links the same.
+  var SITE_ROOT = ${R};
+  // The key frames compare to find a parent running the same site's widget. Its format ("/repo",
+  // "" at a domain root) is shared with widgets every earlier release left in deployed pages.
+  var SITE = SITE_ROOT.slice(0, -1);
   var MANIFEST_URL = ${M};
   var INDEX_URL = ${I};
   var CURRENT = ${C};
@@ -38055,8 +38061,6 @@ function getWidgetScriptTag(opts) {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
-  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
-  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
@@ -38163,7 +38167,7 @@ function getWidgetScriptTag(opts) {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="../' + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + SITE_ROOT + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }
@@ -39133,12 +39137,13 @@ async function writeIndexHtml(workdir, manifest, repoMeta) {
     const listingHtml = renderIndexHtml(manifest, repoMeta);
     await promises.writeFile(path__namespace$1.join(versionsDir, 'index.html'), listingHtml, 'utf8');
 }
-async function injectWidgetIntoSlots(workdir, slots, customization) {
+async function injectWidgetIntoSlots(workdir, siteRoot, slots, customization) {
     const total = emptyPlacementCounts();
     for (const slot of slots) {
         addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
-            manifestUrl: '../versions.json',
-            indexUrl: '../_versions/',
+            siteRoot,
+            manifestPath: 'versions.json',
+            indexPath: '_versions/',
             currentVersion: slot,
             ...customization,
         }));
@@ -39603,12 +39608,14 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     await writeIndexHtml(workdir, cleanedManifest, { owner: repoOwner, repo: repoName });
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
+    // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
+    const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
     // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
     // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
     // [LAW:single-enforcer] Goes through branch-manager.injectWidgetIntoSlots -- the only writer to
     // the gh-pages worktree.
     // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
-    const widget = await injectWidgetIntoSlots(workdir, cleanedManifest.versions.map((v) => v.version), {
+    const widget = await injectWidgetIntoSlots(workdir, siteRoot, cleanedManifest.versions.map((v) => v.version), {
         icon: config.widgetIcon,
         label: config.widgetLabel,
         position: config.widgetPosition,
@@ -39626,7 +39633,6 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     //   null PR slot = zero noindex injections. No guarded skips.
     const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
     const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
-    const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
     const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
     const latestSlot = latestNonPrSlot(cleanedManifest);
     const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;

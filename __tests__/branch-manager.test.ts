@@ -171,12 +171,13 @@ describe('widget injection in deploy pipeline', () => {
     await writeFile(full, content);
   }
 
+  const siteRoot = '/widgets/';
   const noCustomization = { icon: '', label: '', position: '', color: '' };
   const slots = (m: Manifest): string[] => m.versions.map((v) => v.version);
   async function runPipelineStages(m: Manifest = manifest): Promise<WidgetPlacementCounts> {
     await writeIndexHtml(workdir, m, repoMeta);
     await placeContent(workdir, sourceDir, wctx, 'base-tag');
-    return injectWidgetIntoSlots(workdir, slots(m), noCustomization);
+    return injectWidgetIntoSlots(workdir, siteRoot, slots(m), noCustomization);
   }
 
   it('Test 1: full pipeline injects widget into every deployed html and leaves non-html bytes intact', async () => {
@@ -192,12 +193,9 @@ describe('widget injection in deploy pipeline', () => {
 
     const root = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
     const about = await fsReadFile(path.join(workdir, versionSlot, 'about/index.html'), 'utf8');
-    expect(root).toContain(WIDGET_MARKER);
-    expect(about).toContain(WIDGET_MARKER);
-    expect(root).toContain(`"${versionSlot}"`);
-    expect(about).toContain(`"${versionSlot}"`);
-    expect(root).toContain('"../versions.json"');
-    expect(about).toContain('"../versions.json"');
+    const slotWidget = getWidgetScriptTag({ siteRoot, manifestPath: 'versions.json', indexPath: '_versions/', currentVersion: versionSlot, ...noCustomization });
+    expect(root).toContain(slotWidget);
+    expect(about).toContain(slotWidget);
 
     const css = await fsReadFile(path.join(workdir, versionSlot, 'assets/style.css'));
     const js = await fsReadFile(path.join(workdir, versionSlot, 'assets/app.js'));
@@ -231,8 +229,9 @@ describe('widget injection in deploy pipeline', () => {
 
     expect(placed).toEqual({ inserted: 1, refreshed: 1, current: 0 });
     const currentWidget = getWidgetScriptTag({
-      manifestUrl: '../versions.json',
-      indexUrl: '../_versions/',
+      siteRoot,
+      manifestPath: 'versions.json',
+      indexPath: '_versions/',
       currentVersion: older,
       ...noCustomization,
     });
@@ -245,7 +244,7 @@ describe('widget injection in deploy pipeline', () => {
     await writeSource('nested/page.html', '<!doctype html><html><head></head><body>2</body></html>');
 
     await runPipelineStages();
-    const second = await injectWidgetIntoSlots(workdir, slots(manifest), noCustomization);
+    const second = await injectWidgetIntoSlots(workdir, siteRoot, slots(manifest), noCustomization);
     expect(second).toEqual({ inserted: 0, refreshed: 0, current: 2 });
 
     const a = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');

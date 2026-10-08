@@ -24,10 +24,12 @@ import { WIDGET_PLACEMENTS, type WidgetPlacement, type WidgetPlacementCounts } f
 export const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 
 export interface WidgetInjectionOpts {
-  /** Relative URL from a deployed page back to the root versions.json (e.g. "../versions.json"). */
-  manifestUrl: string;
-  /** Relative URL from a deployed page back to the root index (e.g. "../"). */
-  indexUrl: string;
+  /** The URL path the gh-pages root is served from, with a trailing slash ("/repo/", or "/" on a custom domain). */
+  siteRoot: string;
+  /** The manifest's path relative to the site root (e.g. "versions.json"). */
+  manifestPath: string;
+  /** The version index's path relative to the site root (e.g. "_versions/"). */
+  indexPath: string;
   /** The current version slot name; the widget bolds this row and disables click. */
   currentVersion: string;
   /** Custom SVG markup for the handle icon. Empty = built-in layers icon. */
@@ -293,8 +295,9 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
   const positionResolved = opts.position || DEFAULT_WIDGET_POSITION;
   const colorResolved = opts.color || DEFAULT_WIDGET_COLOR;
 
-  const M = safe(opts.manifestUrl);
-  const I = safe(opts.indexUrl);
+  const R = safe(opts.siteRoot);
+  const M = safe(opts.siteRoot + opts.manifestPath);
+  const I = safe(opts.siteRoot + opts.indexPath);
   const C = safe(opts.currentVersion);
   const ICON = safe(iconResolved);
   const LABEL = safe(labelResolved);
@@ -305,6 +308,11 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
 
   return `<script>${WIDGET_MARKER}
 (function(){
+  // Root-relative URLs fixed at deploy time: a page at any depth, at any served URL, links the same.
+  var SITE_ROOT = ${R};
+  // The key frames compare to find a parent running the same site's widget. Its format ("/repo",
+  // "" at a domain root) is shared with widgets every earlier release left in deployed pages.
+  var SITE = SITE_ROOT.slice(0, -1);
   var MANIFEST_URL = ${M};
   var INDEX_URL = ${I};
   var CURRENT = ${C};
@@ -314,8 +322,6 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
-  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
-  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
@@ -422,7 +428,7 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="../' + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + SITE_ROOT + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }

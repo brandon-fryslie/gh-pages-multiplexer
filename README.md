@@ -292,7 +292,7 @@ Schema `1` entries (from older deployments) are still readable — the tool auto
 
 Every deployed HTML page gets a small floating button in the bottom-right corner. Clicking it opens a panel listing all deployed versions, with a "← Index" link back to the root index page.
 
-The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches `../versions.json` lazily on first open. Every deploy re-renders that tag into every version listed in `versions.json`, so pages deployed by an older release of this action pick up the current widget — and the current widget inputs — on the next deploy of any version. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
+The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches the site's root `versions.json` lazily on first open, from a page at any depth in its version. Every deploy re-renders that tag into every version listed in `versions.json`, so pages deployed by an older release of this action pick up the current widget — and the current widget inputs — on the next deploy of any version. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
 
 To opt out: don't use this tool. There's no configuration knob to disable injection in v1 — the widget is the point.
 
@@ -322,7 +322,7 @@ Runs for different slots then execute at the same time and race to push `gh-page
 
 **Deployed site 404s on CSS/JS** — try `base-path-mode: rewrite` instead of the default `base-tag`. Some hosts (or sites that set their own `<base href>`) need direct URL rewriting.
 
-**Widget doesn't load version list** — check the browser's network tab; the widget fetches `../versions.json` relative to the current page. If you moved the manifest (don't — the tool writes it at the gh-pages root), update your workflow.
+**Widget doesn't load version list** — check the browser's network tab; the widget fetches `versions.json` at the site root (the path above the version directory). If you moved the manifest (don't — the tool writes it at the gh-pages root), update your workflow.
 
 ---
 

@@ -27,8 +27,9 @@ afterEach(async () => {
 });
 
 const opts = {
-  manifestUrl: '../versions.json',
-  indexUrl: '../',
+  siteRoot: '/repo/',
+  manifestPath: 'versions.json',
+  indexPath: '_versions/',
   currentVersion: 'v1.0.0',
   icon: '',
   label: '',
@@ -51,16 +52,18 @@ describe('getWidgetScriptTag (pure)', () => {
 
   it('Test 3: inlines opts values', () => {
     const out = getWidgetScriptTag({
-      manifestUrl: '../versions.json',
-      indexUrl: '../',
+      siteRoot: '/repo/',
+      manifestPath: 'versions.json',
+      indexPath: '_versions/',
       currentVersion: 'v1.2.3',
       icon: '',
       label: '',
       position: '',
       color: '',
     });
-    expect(out).toContain('../versions.json');
-    expect(out).toContain('../');
+    expect(out).toContain('"/repo/"');
+    expect(out).toContain('"/repo/versions.json"');
+    expect(out).toContain('"/repo/_versions/"');
     expect(out).toContain('v1.2.3');
   });
 
@@ -103,8 +106,9 @@ describe('getWidgetScriptTag (pure)', () => {
   it('Test 8: escapes currentVersion to prevent script breakout', () => {
     const evil = "v1'\"</script>";
     const out = getWidgetScriptTag({
-      manifestUrl: '../versions.json',
-      indexUrl: '../',
+      siteRoot: '/repo/',
+      manifestPath: 'versions.json',
+      indexPath: '_versions/',
       currentVersion: evil,
       icon: '',
       label: '',
@@ -381,6 +385,36 @@ describe('injected widget at runtime', () => {
     return { dom, decided, navs, frame, virtualConsole };
   };
 
+  it('links every page to the site root, at any depth below its slot', async () => {
+    const slot = path.join(workdir, 'v1.0.0');
+    await mkdir(path.join(slot, 'docs', 'guide'), { recursive: true });
+    const file = path.join(slot, 'docs', 'guide', 'a.html');
+    await writeFile(file, page('guide'), 'utf8');
+    await injectWidgetIntoHtmlFiles(slot, opts);
+
+    const fetched: string[] = [];
+    const dom = new JSDOM(await readFile(file, 'utf8'), {
+      url: `${SITE}docs/guide/a.html`,
+      runScripts: 'dangerously',
+      beforeParse(window) {
+        window.fetch = (async (url: string) => {
+          fetched.push(url);
+          const manifest = { versions: [{ version: 'v1.0.0', ref: 'a' }, { version: 'v2.0.0', ref: 'b' }] };
+          return { ok: true, json: async () => manifest };
+        }) as unknown as typeof fetch;
+      },
+    });
+    doms.push(dom);
+    await new Promise((resolve) => dom.window.addEventListener('load', resolve));
+    const nav = dom.window.document.querySelector('gh-pm-nav')!.shadowRoot!;
+    (nav.querySelector('.handle') as HTMLElement).click();
+    await vi.waitFor(() => expect(nav.querySelector('a.row')).not.toBeNull());
+
+    expect(fetched).toEqual(['/repo/versions.json']);
+    expect(nav.querySelector('.index-link')!.getAttribute('href')).toBe('/repo/_versions/');
+    expect(nav.querySelector('a.row')!.getAttribute('href')).toBe('/repo/v2.0.0/');
+  });
+
   it('mounts one switcher in a top-level page', async () => {
     const { dom, decided, navs } = load(SITE, { [SITE]: page(WIDGET) });
     expect(await decided(1)).toEqual([
@@ -417,7 +451,7 @@ describe('injected widget at runtime', () => {
   it('mounts in a frame whose same-origin parent runs another site\'s widget', async () => {
     const other = 'https://u.github.io/other/v1.0.0/';
     const { decided, navs, frame } = load(other, {
-      [other]: page(`<iframe src="${SITE}"></iframe>${WIDGET}`),
+      [other]: page(`<iframe src="${SITE}"></iframe>${getWidgetScriptTag({ ...opts, siteRoot: '/other/' })}`),
       [SITE]: page(WIDGET),
     });
     expect(await decided(2)).toContainEqual(
