@@ -222,7 +222,7 @@ Note: the CLI never posts PR preview comments — that's an Action-only feature 
 
 ## How versions are named
 
-The version subdirectory is derived from the git ref, sanitized to be filesystem-safe:
+The version subdirectory is derived from the git ref (or the `version` input), sanitized so the name is safe both as a directory and as a URL path segment. Letters, digits, `.`, `_`, `~`, `@`, `+` and `-` are kept, and every other character is written as `~XX` for each of its UTF-8 bytes (percent-encoding with `~` in place of `%`), so no character is dropped and non-ASCII refs keep their names. A `/` still becomes `-`, so `feature/auth` and `feature-auth` share a version:
 
 | Ref | Version directory |
 |---|---|
@@ -230,6 +230,11 @@ The version subdirectory is derived from the git ref, sanitized to be filesystem
 | `refs/heads/main` | `main/` |
 | `refs/heads/feature/auth` | `feature-auth/` |
 | `refs/pull/42/merge` | `pr-42/` *(set via `version-ref` in workflow)* |
+| `refs/tags/@scope/pkg@1.0.0` | `@scope-pkg@1.0.0/` |
+| `refs/tags/v1#rc` | `v1~23rc/` |
+| `refs/heads/docs/日本` | `docs-~E6~97~A5~E6~9C~AC/` |
+
+A version deployed by an earlier release under a name that no longer passes this rule (such as `v1#rc/`) is renamed the next time anything deploys. Its directory moves, the `src` and `href` URLs its pages carry under the old base path move to the new one, and the rename is printed in the deploy summary with the number of pages rebased. Links to the old name stop resolving. If two deployed versions would end up with the same name, the deploy fails and names both.
 
 Redeploying the same ref replaces that version subdirectory atomically — the new commit history is appended to the manifest entry.
 

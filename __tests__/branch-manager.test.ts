@@ -10,7 +10,7 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, writeSitemapXml, applySeoTags, injectWidgetIntoSlots, placeStorageWrapperInSlots } from '../src/branch-manager.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, writeSitemapXml, applySeoTags, injectWidgetIntoSlots, placeStorageWrapperInSlots, renameVersionDirectories } from '../src/branch-manager.js';
 import { STORAGE_WRAPPER_MARKER, autoNamespace, renderStorageWrapperScriptTag } from '../src/storage-wrapper.js';
 import { WIDGET_MARKER, getWidgetScriptTag } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
@@ -377,6 +377,53 @@ describe('applySeoTags', () => {
     expect(counts).toEqual({ canonicalCount: 1, noindexCount: 0 });
     expect(await fsReadFile(path.join(workdir, 'v1', 'a b.html'), 'utf8')).toContain(
       '<link rel="canonical" href="https://example.com/repo/v2/a%20b.html">',
+    );
+  });
+});
+
+describe('renameVersionDirectories', () => {
+  let workdir: string;
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'rename-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+  });
+
+  it('moves each slot directory and rebases the src and href URLs under its old base path', async () => {
+    await mkdir(path.join(workdir, 'v1#rc', 'docs'), { recursive: true });
+    await writeFile(path.join(workdir, 'v1#rc', 'index.html'), '<head><base href="/repo/v1#rc/"></head>');
+    await writeFile(
+      path.join(workdir, 'v1#rc', 'docs', 'a.html'),
+      '<img SRC="/repo/v1#rc/a.png"><a href="/repo/other/"><code>/repo/v1#rc/</code><script>go("/repo/v1#rc/x")</script>',
+    );
+    await writeFile(path.join(workdir, 'v1#rc', 'docs', 'plain.html'), '<a href="page.html">relative only</a>');
+    await writeFile(path.join(workdir, 'v1#rc', 'app.js'), 'js');
+
+    const renamed = await renameVersionDirectories(workdir, '/repo/', [{ from: 'v1#rc', to: 'v1~23rc' }]);
+
+    expect(renamed).toEqual([{ from: 'v1#rc', to: 'v1~23rc', pages: 2 }]);
+    expect(await fsReadFile(path.join(workdir, 'v1~23rc', 'index.html'), 'utf8')).toBe('<head><base href="/repo/v1~23rc/"></head>');
+    expect(await fsReadFile(path.join(workdir, 'v1~23rc', 'docs', 'a.html'), 'utf8')).toBe(
+      '<img SRC="/repo/v1~23rc/a.png"><a href="/repo/other/"><code>/repo/v1#rc/</code><script>go("/repo/v1#rc/x")</script>',
+    );
+    expect(await fsReadFile(path.join(workdir, 'v1~23rc', 'docs', 'plain.html'), 'utf8')).toBe('<a href="page.html">relative only</a>');
+    expect(await fsReadFile(path.join(workdir, 'v1~23rc', 'app.js'), 'utf8')).toBe('js');
+    await expect(fsReadFile(path.join(workdir, 'v1#rc', 'app.js'))).rejects.toThrow(/ENOENT/);
+  });
+
+  it('has nothing to move for a slot with no directory', async () => {
+    expect(await renameVersionDirectories(workdir, '/', [{ from: 'a&b', to: 'a~26b' }])).toEqual([{ from: 'a&b', to: 'a~26b', pages: 0 }]);
+  });
+
+  it('names the slot rename when its new directory is already taken', async () => {
+    await mkdir(path.join(workdir, 'a&b'));
+    await writeFile(path.join(workdir, 'a&b', 'index.html'), '<p>old</p>');
+    await mkdir(path.join(workdir, 'a~26b'));
+    await writeFile(path.join(workdir, 'a~26b', 'stray.html'), '<p>stray</p>');
+
+    await expect(renameVersionDirectories(workdir, '/', [{ from: 'a&b', to: 'a~26b' }])).rejects.toThrow(
+      /Renaming slot "a&b" to its URL-safe slot name "a~26b" failed: (ENOTEMPTY|EEXIST)/,
     );
   });
 });

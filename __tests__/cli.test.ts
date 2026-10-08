@@ -27,6 +27,7 @@ beforeEach(() => {
     version: 'v1.0.0',
     url: 'https://owner.github.io/name/v1.0.0/',
     removedVersions: [],
+    renamedVersions: [],
     outcome: 'pushed',
     attempts: 1,
     widget: { inserted: 1, refreshed: 0, current: 0 },
@@ -59,6 +60,7 @@ describe('cli main()', () => {
       version: 'v1.0.0',
       url: 'https://owner.github.io/name/v1.0.0/',
       removedVersions: [],
+      renamedVersions: [],
       outcome: 'pushed',
       attempts: 2,
       widget: { inserted: 3, refreshed: 40, current: 5 },
@@ -67,7 +69,7 @@ describe('cli main()', () => {
     });
     expect(await main(FULL_ARGV, { GITHUB_TOKEN: 'ghs_xxx' })).toBe(0);
     expect(stdout()).toBe(
-      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s) from v1.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s) from v1.0.0; renamed 0 slot(s))\n',
     );
   });
 

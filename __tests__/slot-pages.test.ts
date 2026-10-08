@@ -57,9 +57,9 @@ describe('slotPageUrl', () => {
     expect(slotPageUrl('https://example.com/repo', 'v1.0.0', 'docs/api.html')).toBe('https://example.com/repo/v1.0.0/docs/api.html');
   });
 
-  it('percent-encodes each segment but keeps the separators', () => {
-    expect(slotPageUrl('https://example.com', 'v1 beta', 'my docs/faq#1?.html')).toBe(
-      'https://example.com/v1%20beta/my%20docs/faq%231%3F.html',
+  it('writes the slot as is and percent-encodes each page path segment, keeping the separators', () => {
+    expect(slotPageUrl('https://example.com', 'pkg@1.0.0+b1', 'my docs/faq#1?.html')).toBe(
+      'https://example.com/pkg@1.0.0+b1/my%20docs/faq%231%3F.html',
     );
   });
 });

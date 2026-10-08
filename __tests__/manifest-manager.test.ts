@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readManifest, updateManifest, removeVersions, writeManifest } from '../src/manifest-manager.js';
+import { readManifest, updateManifest, removeVersions, renameUnsafeSlots, writeManifest } from '../src/manifest-manager.js';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -134,5 +134,25 @@ describe('writeManifest', () => {
     const content = await readFile(path.join(workdir, 'versions.json'), 'utf8');
     expect(content).toContain('\n  '); // 2-space indented
     expect(JSON.parse(content)).toEqual(m);
+  });
+});
+
+describe('renameUnsafeSlots', () => {
+  it('returns a manifest of slot names as is, with no renames', () => {
+    const manifest: Manifest = { schema: 2, versions: [entry('v2.0.0'), entry('pr-3')] };
+    expect(renameUnsafeSlots(manifest)).toEqual({ manifest, renames: [] });
+  });
+
+  it('renames slots that predate the slot-name rule in place, keeping every other field', () => {
+    const legacy = { ...entry('v1#rc'), ref: 'refs/tags/v1#rc', sha: 'def' };
+    const { manifest, renames } = renameUnsafeSlots({ schema: 1, versions: [entry('v2.0.0'), legacy] });
+    expect(renames).toEqual([{ from: 'v1#rc', to: 'v1~23rc' }]);
+    expect(manifest).toEqual({ schema: 1, versions: [entry('v2.0.0'), { ...legacy, version: 'v1~23rc' }] });
+  });
+
+  it('throws naming both slots when a rename lands on a slot another entry holds', () => {
+    expect(() => renameUnsafeSlots({ schema: 2, versions: [entry('v1~23rc'), entry('v1#rc')] })).toThrow(
+      /"v1~23rc" and "v1#rc" both become slot "v1~23rc"/,
+    );
   });
 });

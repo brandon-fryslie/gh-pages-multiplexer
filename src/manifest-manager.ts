@@ -2,7 +2,8 @@
 // [LAW:dataflow-not-control-flow] updateManifest always performs the same ops; idempotent replace is encoded in data (filter + prepend).
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Manifest, ManifestEntry } from './types.js';
+import type { Manifest, ManifestEntry, SlotRename } from './types.js';
+import { sanitizeRef } from './ref-resolver.js';
 
 const MANIFEST_FILE = 'versions.json';
 
@@ -64,4 +65,29 @@ export function removeVersions(manifest: Manifest, versions: string[]): Manifest
 export async function writeManifest(workdir: string, manifest: Manifest): Promise<void> {
   const file = path.join(workdir, MANIFEST_FILE);
   await writeFile(file, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
+}
+
+/**
+ * Pure function: rename every entry whose version is not a slot name (deployed before the slot-name
+ * rule narrowed) to the slot name sanitizeRef gives it. A manifest of slot names is returned as is,
+ * with no renames. Throws when a rename would land on a slot another entry holds.
+ * [LAW:single-enforcer] sanitizeRef decides what a slot name is; this only applies it to slots already deployed.
+ */
+export function renameUnsafeSlots(manifest: Manifest): { manifest: Manifest; renames: SlotRename[] } {
+  const slots = manifest.versions.map((v) => ({ from: v.version, to: sanitizeRef(v.version) }));
+  const holders = new Map<string, string>();
+  for (const { from, to } of slots) {
+    const holder = holders.get(to);
+    if (holder !== undefined) {
+      throw new Error(
+        `Deployed slots "${holder}" and "${from}" both become slot "${to}" under the URL-safe slot-name rule; ` +
+          `remove one of them from ${MANIFEST_FILE} and its directory`,
+      );
+    }
+    holders.set(to, from);
+  }
+  return {
+    manifest: { schema: manifest.schema, versions: manifest.versions.map((v, i) => ({ ...v, version: slots[i].to })) },
+    renames: slots.filter((r) => r.from !== r.to),
+  };
 }

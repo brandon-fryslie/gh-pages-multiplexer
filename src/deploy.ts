@@ -9,7 +9,7 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, SitemapCoverage, WrapperCoverage } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, RenamedSlot, SitemapCoverage, WrapperCoverage } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
@@ -18,6 +18,7 @@ import {
   writeIndexHtml,
   injectWidgetIntoSlots,
   removeVersionDirectories,
+  renameVersionDirectories,
   writeRobotsTxt,
   writeSitemapXml,
   writeHealthJson,
@@ -25,7 +26,7 @@ import {
   applySeoTags,
   placeStorageWrapperInSlots,
 } from './branch-manager.js';
-import { readManifest, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
+import { readManifest, renameUnsafeSlots, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
 import { latestNonPrSlot } from './sitemap-generator.js';
@@ -66,6 +67,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
         version: rendered.context.versionSlot,
         url: rendered.url,
         removedVersions: rendered.removedVersions,
+        renamedVersions: rendered.renamedVersions,
         outcome: published.kind,
         attempts: attempt,
         widget: rendered.widget,
@@ -85,7 +87,8 @@ export function deploySummary(result: DeployResult): string {
   return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
     `nav widget ${placed(result.widget)}; ` +
     `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
-    `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'})`;
+    `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'}; ` +
+    `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to} (${r.pages} page(s) rebased)`).join(',')})`;
 }
 
 /**
@@ -101,6 +104,7 @@ async function renderDeployment(
   context: DeploymentContext;
   url: string;
   removedVersions: string[];
+  renamedVersions: RenamedSlot[];
   widget: PlacementCounts;
   storageWrapper: DeployResult['storageWrapper'];
   sitemap: SitemapCoverage;
@@ -110,8 +114,13 @@ async function renderDeployment(
   const context = resolveContext(config, cnameDomain !== null);
   core.info(`Version: ${context.versionSlot}, Base path: ${context.basePath}`);
 
-  // Stage 3: Read manifest, extract commits, update (pure), write.
-  const currentManifest = await readManifest(workdir);
+  // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
+  const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
+
+  // Stage 3: Read manifest, rename slots that predate the slot-name rule, extract commits, update (pure), write.
+  // [LAW:single-enforcer] Every slot in the manifest is a slot name from here on, so no output path encodes one.
+  const { manifest: currentManifest, renames } = renameUnsafeSlots(await readManifest(workdir));
+  const renamedVersions = await renameVersionDirectories(workdir, siteRoot, renames);
   const previousSha =
     currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
   // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
@@ -151,9 +160,6 @@ async function renderDeployment(
 
   // Stage 4: Place content (copy + base path correction + .nojekyll).
   await placeContent(workdir, config.sourceDir, context, config.basePathMode);
-
-  // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
-  const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
 
   // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
   // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
@@ -210,5 +216,5 @@ async function renderDeployment(
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper, sitemap };
+  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, renamedVersions, widget, storageWrapper, sitemap };
 }

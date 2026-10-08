@@ -15,11 +15,12 @@ import * as core from '@actions/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SitemapCoverage, SourceRepo, WrapperCoverage } from './types.js';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, RenamedSlot, SitemapCoverage, SlotRename, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
-import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative } from './slot-pages.js';
+import { rebaseUrls } from './base-path.js';
+import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative, findSlotHtmlFiles } from './slot-pages.js';
 import { renderRobotsTxt } from './robots-generator.js';
 import {
   latestNonPrSlot,
@@ -253,6 +254,37 @@ export async function removeVersionDirectories(workdir: string, versions: string
     removed++;
   }
   return removed;
+}
+
+/**
+ * Move each renamed slot's directory to its new name, and rebase its pages: every URL its deploy wrote
+ * under the old base path (a <base href>, or the prefix of rewritten URLs) moves under the base path
+ * of the new slot. `siteRoot` is the URL path the gh-pages root is served from. A slot with no
+ * directory has nothing to move. Returns each rename with the number of pages it rebased.
+ * [LAW:dataflow-not-control-flow] Always runs; no renames = no moves in data.
+ */
+export async function renameVersionDirectories(workdir: string, siteRoot: string, renames: SlotRename[]): Promise<RenamedSlot[]> {
+  const renamed: RenamedSlot[] = [];
+  for (const { from, to } of renames) {
+    const fromDir = path.join(workdir, from);
+    let pages = 0;
+    for (const file of await findSlotHtmlFiles(fromDir)) {
+      const html = await readFile(file, 'utf8');
+      const rebased = rebaseUrls(html, `${siteRoot}${from}/`, `${siteRoot}${to}/`);
+      await writeFile(file, rebased, 'utf8');
+      pages += Number(rebased !== html);
+    }
+    try {
+      await rename(fromDir, path.join(workdir, to));
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code !== 'ENOENT' || e.path !== fromDir) {
+        throw new Error(`Renaming slot "${from}" to its URL-safe slot name "${to}" failed: ${e.message}`, { cause: err });
+      }
+    }
+    renamed.push({ from, to, pages });
+  }
+  return renamed;
 }
 
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.

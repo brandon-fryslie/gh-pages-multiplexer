@@ -37474,11 +37474,25 @@ function requirePicomatch () {
 var picomatchExports = /*@__PURE__*/ requirePicomatch();
 var picomatch = /*@__PURE__*/getDefaultExportFromCjs(picomatchExports);
 
-// [LAW:single-enforcer] Ref sanitization is the single enforcement point for filesystem-safe version slot names (T-01-01).
+// [LAW:single-enforcer] Ref sanitization is the single enforcement point for slot names: a slot name is
+//   a string sanitizeRef maps to itself, so it is filesystem-safe (T-01-01) and URL-safe by construction.
 // [LAW:dataflow-not-control-flow] resolveContext always runs the same steps; basePath variability lives in the data (config + cname flag).
+// Everything a slot name may not contain. What remains (RFC 3986 unreserved characters plus `@` and `+`)
+// is a URL path segment as written: it needs no percent-encoding, no escaping in HTML, XML or JS
+// strings, and means nothing to String.prototype.replace, so every output path writes a slot raw.
+const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/gu;
 /**
- * Sanitize a git ref into a single-segment, filesystem-safe directory name.
- * Implements D-04/D-06 and mitigates T-01-01 (path traversal via ref name).
+ * `~XX` for each UTF-8 byte of `char`: percent-encoding with `~` as the escape character, so the
+ * escape is itself made of slot characters and a ref loses nothing (`v1#rc` -> `v1~23rc`,
+ * `日` -> `~E6~97~A5`). Git refs cannot contain `~`, so an escape never reads as characters a ref wrote literally.
+ */
+function escapeSlotChar(char) {
+    return [...new TextEncoder().encode(char)].map((byte) => `~${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+}
+/**
+ * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
+ * a URL. Implements D-04/D-06 and mitigates T-01-01 (path traversal via ref name). Idempotent: a slot
+ * name sanitizes to itself.
  */
 function sanitizeRef(ref) {
     // Strip well-known ref prefixes. PR refs map to pr-N.
@@ -37492,11 +37506,12 @@ function sanitizeRef(ref) {
     // Split into segments, drop any `..` segments (path traversal defense), then rejoin with hyphens.
     const segments = noControl.split('/').filter((seg) => seg !== '..' && seg.length > 0);
     const joined = segments.join('-');
-    // Replace remaining filesystem-unsafe characters with hyphens.
+    // Escape every other non-slot character. A leading dot would make a hidden or relative (`.`)
+    // directory, so leading dots go with leading hyphens.
     const safe = joined
-        .replace(/[\\:*?"<>|/]/g, '-')
+        .replace(NON_SLOT_CHARS, escapeSlotChar)
         .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
+        .replace(/^[-.]+|-$/g, '');
     if (safe.length === 0) {
         throw new Error(`Ref "${ref}" sanitized to an empty string`);
     }
@@ -37809,12 +37824,12 @@ async function findHtmlFilesRelative(slotDir) {
 }
 /**
  * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`
- * ("https://example.com/repo", no trailing slash). Slot and page names are filesystem names, so every
- * path segment is percent-encoded: a space or `#` in a name must not end up raw in the URL.
+ * ("https://example.com/repo", no trailing slash). A slot name is URL-safe as written; page names are
+ * whatever the build produced, so each of their path segments is percent-encoded: a space or `#` in a
+ * file name must not end up raw in the URL.
  */
 function slotPageUrl(siteBase, slot, relPath) {
-    const segments = [slot, ...relPath.split('/')];
-    return `${siteBase}/${segments.map(encodeURIComponent).join('/')}`;
+    return `${siteBase}/${slot}/${relPath.split('/').map(encodeURIComponent).join('/')}`;
 }
 const SCRIPT_CLOSE = '</script>';
 /**
@@ -38233,7 +38248,7 @@ function getWidgetScriptTag(opts) {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="' + SITE_ROOT + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + SITE_ROOT + name + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }
@@ -38329,6 +38344,52 @@ async function injectWidgetIntoHtmlFiles(versionDir, opts) {
         counts[placement]++;
     }
     return counts;
+}
+
+// [LAW:dataflow-not-control-flow] Both functions always run every regex; variability is in the input string, not in whether operations execute.
+// [LAW:single-enforcer] HTML base path correction lives in exactly one module (DEPL-04).
+/**
+ * Inject (or replace) a <base href> tag in the <head> of an HTML document.
+ * Also rewrites fragment-only `href="#x"` links to `href="<filename>#x"` to
+ * work around the <base> + anchor link interaction (Pitfall 2).
+ */
+function injectBaseHref(html, basePath, filename) {
+    const existingBase = /<base\s[^>]*href="[^"]*"[^>]*>/i;
+    const headOpen = /(<head[^>]*>)/i;
+    let out;
+    if (existingBase.test(html)) {
+        // Pitfall 3: replace existing base tag so ours wins.
+        out = html.replace(existingBase, `<base href="${basePath}">`);
+    }
+    else if (headOpen.test(html)) {
+        out = html.replace(headOpen, `$1\n<base href="${basePath}">`);
+    }
+    else {
+        // No <head> -- not an HTML document we can process. Return unchanged.
+        return html;
+    }
+    // Pitfall 2: rewrite fragment-only hrefs to resolve against this file.
+    return out.replace(/href="#([^"]+)"/gi, `href="${filename}#$1"`);
+}
+/**
+ * Rewrite root-relative `src="/..."` and `href="/..."` attributes so they
+ * point under the given basePath. Absolute (`https://`), protocol-relative
+ * (`//`), and already-relative URLs are left untouched.
+ */
+function rewriteUrls(html, basePath) {
+    const prefix = basePath.replace(/\/$/, '');
+    // Match (src|href)="/something" where the first char after " is / but not //.
+    return html.replace(/(src|href)="\/(?!\/)([^"]*)"/gi, (_m, attr, rest) => {
+        return `${attr}="${prefix}/${rest}"`;
+    });
+}
+/**
+ * Move every `src`/`href` URL under `fromBase` to the same place under `toBase`, for a slot whose
+ * base path changed. These attributes are where injectBaseHref and rewriteUrls write a base path;
+ * page text, scripts and URLs elsewhere are untouched.
+ */
+function rebaseUrls(html, fromBase, toBase) {
+    return html.replace(/(src|href)="([^"]*)"/gi, (attr, name, url) => url.startsWith(fromBase) ? `${name}="${toBase}${url.slice(fromBase.length)}"` : attr);
 }
 
 const PR_VERSION_RE$3 = /^pr-\d+$/;
@@ -39080,6 +39141,37 @@ async function removeVersionDirectories(workdir, versions) {
     }
     return removed;
 }
+/**
+ * Move each renamed slot's directory to its new name, and rebase its pages: every URL its deploy wrote
+ * under the old base path (a <base href>, or the prefix of rewritten URLs) moves under the base path
+ * of the new slot. `siteRoot` is the URL path the gh-pages root is served from. A slot with no
+ * directory has nothing to move. Returns each rename with the number of pages it rebased.
+ * [LAW:dataflow-not-control-flow] Always runs; no renames = no moves in data.
+ */
+async function renameVersionDirectories(workdir, siteRoot, renames) {
+    const renamed = [];
+    for (const { from, to } of renames) {
+        const fromDir = path__namespace$1.join(workdir, from);
+        let pages = 0;
+        for (const file of await findSlotHtmlFiles(fromDir)) {
+            const html = await promises.readFile(file, 'utf8');
+            const rebased = rebaseUrls(html, `${siteRoot}${from}/`, `${siteRoot}${to}/`);
+            await promises.writeFile(file, rebased, 'utf8');
+            pages += Number(rebased !== html);
+        }
+        try {
+            await promises.rename(fromDir, path__namespace$1.join(workdir, to));
+        }
+        catch (err) {
+            const e = err;
+            if (e.code !== 'ENOENT' || e.path !== fromDir) {
+                throw new Error(`Renaming slot "${from}" to its URL-safe slot name "${to}" failed: ${e.message}`, { cause: err });
+            }
+        }
+        renamed.push({ from, to, pages });
+    }
+    return renamed;
+}
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
 // The rendered index is produced by the pure renderer in index-renderer.ts; this
 // function is the sole I/O enforcer that lands it on disk.
@@ -39257,43 +39349,27 @@ async function writeManifest(workdir, manifest) {
     const file = path$1.join(workdir, MANIFEST_FILE);
     await promises.writeFile(file, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 }
-
-// [LAW:dataflow-not-control-flow] Both functions always run every regex; variability is in the input string, not in whether operations execute.
-// [LAW:single-enforcer] HTML base path correction lives in exactly one module (DEPL-04).
 /**
- * Inject (or replace) a <base href> tag in the <head> of an HTML document.
- * Also rewrites fragment-only `href="#x"` links to `href="<filename>#x"` to
- * work around the <base> + anchor link interaction (Pitfall 2).
+ * Pure function: rename every entry whose version is not a slot name (deployed before the slot-name
+ * rule narrowed) to the slot name sanitizeRef gives it. A manifest of slot names is returned as is,
+ * with no renames. Throws when a rename would land on a slot another entry holds.
+ * [LAW:single-enforcer] sanitizeRef decides what a slot name is; this only applies it to slots already deployed.
  */
-function injectBaseHref(html, basePath, filename) {
-    const existingBase = /<base\s[^>]*href="[^"]*"[^>]*>/i;
-    const headOpen = /(<head[^>]*>)/i;
-    let out;
-    if (existingBase.test(html)) {
-        // Pitfall 3: replace existing base tag so ours wins.
-        out = html.replace(existingBase, `<base href="${basePath}">`);
+function renameUnsafeSlots(manifest) {
+    const slots = manifest.versions.map((v) => ({ from: v.version, to: sanitizeRef(v.version) }));
+    const holders = new Map();
+    for (const { from, to } of slots) {
+        const holder = holders.get(to);
+        if (holder !== undefined) {
+            throw new Error(`Deployed slots "${holder}" and "${from}" both become slot "${to}" under the URL-safe slot-name rule; ` +
+                `remove one of them from ${MANIFEST_FILE} and its directory`);
+        }
+        holders.set(to, from);
     }
-    else if (headOpen.test(html)) {
-        out = html.replace(headOpen, `$1\n<base href="${basePath}">`);
-    }
-    else {
-        // No <head> -- not an HTML document we can process. Return unchanged.
-        return html;
-    }
-    // Pitfall 2: rewrite fragment-only hrefs to resolve against this file.
-    return out.replace(/href="#([^"]+)"/gi, `href="${filename}#$1"`);
-}
-/**
- * Rewrite root-relative `src="/..."` and `href="/..."` attributes so they
- * point under the given basePath. Absolute (`https://`), protocol-relative
- * (`//`), and already-relative URLs are left untouched.
- */
-function rewriteUrls(html, basePath) {
-    const prefix = basePath.replace(/\/$/, '');
-    // Match (src|href)="/something" where the first char after " is / but not //.
-    return html.replace(/(src|href)="\/(?!\/)([^"]*)"/gi, (_m, attr, rest) => {
-        return `${attr}="${prefix}/${rest}"`;
-    });
+    return {
+        manifest: { schema: manifest.schema, versions: manifest.versions.map((v, i) => ({ ...v, version: slots[i].to })) },
+        renames: slots.filter((r) => r.from !== r.to),
+    };
 }
 
 // [LAW:dataflow-not-control-flow] Always runs the same sequence: remove slot, copy, walk for .html, apply correction, ensure .nojekyll.
@@ -39497,6 +39573,7 @@ async function deploy(config, source) {
                 version: rendered.context.versionSlot,
                 url: rendered.url,
                 removedVersions: rendered.removedVersions,
+                renamedVersions: rendered.renamedVersions,
                 outcome: published.kind,
                 attempts: attempt,
                 widget: rendered.widget,
@@ -39514,7 +39591,8 @@ function deploySummary(result) {
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
         `nav widget ${placed(result.widget)}; ` +
         `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
-        `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'})`;
+        `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'}; ` +
+        `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to} (${r.pages} page(s) rebased)`).join(',')})`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -39526,8 +39604,12 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     const cnameDomain = await readCnameFile(workdir);
     const context = resolveContext(config, cnameDomain !== null);
     info(`Version: ${context.versionSlot}, Base path: ${context.basePath}`);
-    // Stage 3: Read manifest, extract commits, update (pure), write.
-    const currentManifest = await readManifest(workdir);
+    // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
+    const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
+    // Stage 3: Read manifest, rename slots that predate the slot-name rule, extract commits, update (pure), write.
+    // [LAW:single-enforcer] Every slot in the manifest is a slot name from here on, so no output path encodes one.
+    const { manifest: currentManifest, renames } = renameUnsafeSlots(await readManifest(workdir));
+    const renamedVersions = await renameVersionDirectories(workdir, siteRoot, renames);
     const previousSha = currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
     // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
     const commits = await extractCommits(sourceRepoDir, context.sha, previousSha, config.prBaseRef);
@@ -39562,8 +39644,6 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     await writeIndexHtml(workdir, cleanedManifest, { owner: repoOwner, repo: repoName });
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
-    // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
-    const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
     // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
     // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
     // [LAW:single-enforcer] Goes through branch-manager.injectWidgetIntoSlots -- the only writer to
@@ -39606,7 +39686,7 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
-    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper, sitemap };
+    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, renamedVersions, widget, storageWrapper, sitemap };
 }
 
 // [LAW:one-source-of-truth] PREVIEW_COMMENT_MARKER is the sole identity check for "this is the
