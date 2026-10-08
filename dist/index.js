@@ -3717,9 +3717,9 @@ var hasRequiredConstants$4;
 function requireConstants$4 () {
 	if (hasRequiredConstants$4) return constants$4;
 	hasRequiredConstants$4 = 1;
-	(function (exports) {
-		Object.defineProperty(exports, "__esModule", { value: true });
-		exports.SPECIAL_HEADERS = exports.HEADER_STATE = exports.MINOR = exports.MAJOR = exports.CONNECTION_TOKEN_CHARS = exports.HEADER_CHARS = exports.TOKEN = exports.STRICT_TOKEN = exports.HEX = exports.URL_CHAR = exports.STRICT_URL_CHAR = exports.USERINFO_CHARS = exports.MARK = exports.ALPHANUM = exports.NUM = exports.HEX_MAP = exports.NUM_MAP = exports.ALPHA = exports.FINISH = exports.H_METHOD_MAP = exports.METHOD_MAP = exports.METHODS_RTSP = exports.METHODS_ICE = exports.METHODS_HTTP = exports.METHODS = exports.LENIENT_FLAGS = exports.FLAGS = exports.TYPE = exports.ERROR = void 0;
+	(function (exports$1) {
+		Object.defineProperty(exports$1, "__esModule", { value: true });
+		exports$1.SPECIAL_HEADERS = exports$1.HEADER_STATE = exports$1.MINOR = exports$1.MAJOR = exports$1.CONNECTION_TOKEN_CHARS = exports$1.HEADER_CHARS = exports$1.TOKEN = exports$1.STRICT_TOKEN = exports$1.HEX = exports$1.URL_CHAR = exports$1.STRICT_URL_CHAR = exports$1.USERINFO_CHARS = exports$1.MARK = exports$1.ALPHANUM = exports$1.NUM = exports$1.HEX_MAP = exports$1.NUM_MAP = exports$1.ALPHA = exports$1.FINISH = exports$1.H_METHOD_MAP = exports$1.METHOD_MAP = exports$1.METHODS_RTSP = exports$1.METHODS_ICE = exports$1.METHODS_HTTP = exports$1.METHODS = exports$1.LENIENT_FLAGS = exports$1.FLAGS = exports$1.TYPE = exports$1.ERROR = void 0;
 		const utils_1 = requireUtils$1();
 		(function (ERROR) {
 		    ERROR[ERROR["OK"] = 0] = "OK";
@@ -3747,12 +3747,12 @@ function requireConstants$4 () {
 		    ERROR[ERROR["PAUSED_UPGRADE"] = 22] = "PAUSED_UPGRADE";
 		    ERROR[ERROR["PAUSED_H2_UPGRADE"] = 23] = "PAUSED_H2_UPGRADE";
 		    ERROR[ERROR["USER"] = 24] = "USER";
-		})(exports.ERROR || (exports.ERROR = {}));
+		})(exports$1.ERROR || (exports$1.ERROR = {}));
 		(function (TYPE) {
 		    TYPE[TYPE["BOTH"] = 0] = "BOTH";
 		    TYPE[TYPE["REQUEST"] = 1] = "REQUEST";
 		    TYPE[TYPE["RESPONSE"] = 2] = "RESPONSE";
-		})(exports.TYPE || (exports.TYPE = {}));
+		})(exports$1.TYPE || (exports$1.TYPE = {}));
 		(function (FLAGS) {
 		    FLAGS[FLAGS["CONNECTION_KEEP_ALIVE"] = 1] = "CONNECTION_KEEP_ALIVE";
 		    FLAGS[FLAGS["CONNECTION_CLOSE"] = 2] = "CONNECTION_CLOSE";
@@ -3764,12 +3764,12 @@ function requireConstants$4 () {
 		    FLAGS[FLAGS["TRAILING"] = 128] = "TRAILING";
 		    // 1 << 8 is unused
 		    FLAGS[FLAGS["TRANSFER_ENCODING"] = 512] = "TRANSFER_ENCODING";
-		})(exports.FLAGS || (exports.FLAGS = {}));
+		})(exports$1.FLAGS || (exports$1.FLAGS = {}));
 		(function (LENIENT_FLAGS) {
 		    LENIENT_FLAGS[LENIENT_FLAGS["HEADERS"] = 1] = "HEADERS";
 		    LENIENT_FLAGS[LENIENT_FLAGS["CHUNKED_LENGTH"] = 2] = "CHUNKED_LENGTH";
 		    LENIENT_FLAGS[LENIENT_FLAGS["KEEP_ALIVE"] = 4] = "KEEP_ALIVE";
-		})(exports.LENIENT_FLAGS || (exports.LENIENT_FLAGS = {}));
+		})(exports$1.LENIENT_FLAGS || (exports$1.LENIENT_FLAGS = {}));
 		var METHODS;
 		(function (METHODS) {
 		    METHODS[METHODS["DELETE"] = 0] = "DELETE";
@@ -3829,8 +3829,8 @@ function requireConstants$4 () {
 		    METHODS[METHODS["RECORD"] = 44] = "RECORD";
 		    /* RAOP */
 		    METHODS[METHODS["FLUSH"] = 45] = "FLUSH";
-		})(METHODS = exports.METHODS || (exports.METHODS = {}));
-		exports.METHODS_HTTP = [
+		})(METHODS = exports$1.METHODS || (exports$1.METHODS = {}));
+		exports$1.METHODS_HTTP = [
 		    METHODS.DELETE,
 		    METHODS.GET,
 		    METHODS.HEAD,
@@ -3868,10 +3868,10 @@ function requireConstants$4 () {
 		    // TODO(indutny): should we allow it with HTTP?
 		    METHODS.SOURCE,
 		];
-		exports.METHODS_ICE = [
+		exports$1.METHODS_ICE = [
 		    METHODS.SOURCE,
 		];
-		exports.METHODS_RTSP = [
+		exports$1.METHODS_RTSP = [
 		    METHODS.OPTIONS,
 		    METHODS.DESCRIBE,
 		    METHODS.ANNOUNCE,
@@ -3888,59 +3888,59 @@ function requireConstants$4 () {
 		    METHODS.GET,
 		    METHODS.POST,
 		];
-		exports.METHOD_MAP = utils_1.enumToMap(METHODS);
-		exports.H_METHOD_MAP = {};
-		Object.keys(exports.METHOD_MAP).forEach((key) => {
+		exports$1.METHOD_MAP = utils_1.enumToMap(METHODS);
+		exports$1.H_METHOD_MAP = {};
+		Object.keys(exports$1.METHOD_MAP).forEach((key) => {
 		    if (/^H/.test(key)) {
-		        exports.H_METHOD_MAP[key] = exports.METHOD_MAP[key];
+		        exports$1.H_METHOD_MAP[key] = exports$1.METHOD_MAP[key];
 		    }
 		});
 		(function (FINISH) {
 		    FINISH[FINISH["SAFE"] = 0] = "SAFE";
 		    FINISH[FINISH["SAFE_WITH_CB"] = 1] = "SAFE_WITH_CB";
 		    FINISH[FINISH["UNSAFE"] = 2] = "UNSAFE";
-		})(exports.FINISH || (exports.FINISH = {}));
-		exports.ALPHA = [];
+		})(exports$1.FINISH || (exports$1.FINISH = {}));
+		exports$1.ALPHA = [];
 		for (let i = 'A'.charCodeAt(0); i <= 'Z'.charCodeAt(0); i++) {
 		    // Upper case
-		    exports.ALPHA.push(String.fromCharCode(i));
+		    exports$1.ALPHA.push(String.fromCharCode(i));
 		    // Lower case
-		    exports.ALPHA.push(String.fromCharCode(i + 0x20));
+		    exports$1.ALPHA.push(String.fromCharCode(i + 0x20));
 		}
-		exports.NUM_MAP = {
+		exports$1.NUM_MAP = {
 		    0: 0, 1: 1, 2: 2, 3: 3, 4: 4,
 		    5: 5, 6: 6, 7: 7, 8: 8, 9: 9,
 		};
-		exports.HEX_MAP = {
+		exports$1.HEX_MAP = {
 		    0: 0, 1: 1, 2: 2, 3: 3, 4: 4,
 		    5: 5, 6: 6, 7: 7, 8: 8, 9: 9,
 		    A: 0XA, B: 0XB, C: 0XC, D: 0XD, E: 0XE, F: 0XF,
 		    a: 0xa, b: 0xb, c: 0xc, d: 0xd, e: 0xe, f: 0xf,
 		};
-		exports.NUM = [
+		exports$1.NUM = [
 		    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
 		];
-		exports.ALPHANUM = exports.ALPHA.concat(exports.NUM);
-		exports.MARK = ['-', '_', '.', '!', '~', '*', '\'', '(', ')'];
-		exports.USERINFO_CHARS = exports.ALPHANUM
-		    .concat(exports.MARK)
+		exports$1.ALPHANUM = exports$1.ALPHA.concat(exports$1.NUM);
+		exports$1.MARK = ['-', '_', '.', '!', '~', '*', '\'', '(', ')'];
+		exports$1.USERINFO_CHARS = exports$1.ALPHANUM
+		    .concat(exports$1.MARK)
 		    .concat(['%', ';', ':', '&', '=', '+', '$', ',']);
 		// TODO(indutny): use RFC
-		exports.STRICT_URL_CHAR = [
+		exports$1.STRICT_URL_CHAR = [
 		    '!', '"', '$', '%', '&', '\'',
 		    '(', ')', '*', '+', ',', '-', '.', '/',
 		    ':', ';', '<', '=', '>',
 		    '@', '[', '\\', ']', '^', '_',
 		    '`',
 		    '{', '|', '}', '~',
-		].concat(exports.ALPHANUM);
-		exports.URL_CHAR = exports.STRICT_URL_CHAR
+		].concat(exports$1.ALPHANUM);
+		exports$1.URL_CHAR = exports$1.STRICT_URL_CHAR
 		    .concat(['\t', '\f']);
 		// All characters with 0x80 bit set to 1
 		for (let i = 0x80; i <= 0xff; i++) {
-		    exports.URL_CHAR.push(i);
+		    exports$1.URL_CHAR.push(i);
 		}
-		exports.HEX = exports.NUM.concat(['a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F']);
+		exports$1.HEX = exports$1.NUM.concat(['a', 'b', 'c', 'd', 'e', 'f', 'A', 'B', 'C', 'D', 'E', 'F']);
 		/* Tokens as defined by rfc 2616. Also lowercases them.
 		 *        token       = 1*<any CHAR except CTLs or separators>
 		 *     separators     = "(" | ")" | "<" | ">" | "@"
@@ -3948,27 +3948,27 @@ function requireConstants$4 () {
 		 *                    | "/" | "[" | "]" | "?" | "="
 		 *                    | "{" | "}" | SP | HT
 		 */
-		exports.STRICT_TOKEN = [
+		exports$1.STRICT_TOKEN = [
 		    '!', '#', '$', '%', '&', '\'',
 		    '*', '+', '-', '.',
 		    '^', '_', '`',
 		    '|', '~',
-		].concat(exports.ALPHANUM);
-		exports.TOKEN = exports.STRICT_TOKEN.concat([' ']);
+		].concat(exports$1.ALPHANUM);
+		exports$1.TOKEN = exports$1.STRICT_TOKEN.concat([' ']);
 		/*
 		 * Verify that a char is a valid visible (printable) US-ASCII
 		 * character or %x80-FF
 		 */
-		exports.HEADER_CHARS = ['\t'];
+		exports$1.HEADER_CHARS = ['\t'];
 		for (let i = 32; i <= 255; i++) {
 		    if (i !== 127) {
-		        exports.HEADER_CHARS.push(i);
+		        exports$1.HEADER_CHARS.push(i);
 		    }
 		}
 		// ',' = \x44
-		exports.CONNECTION_TOKEN_CHARS = exports.HEADER_CHARS.filter((c) => c !== 44);
-		exports.MAJOR = exports.NUM_MAP;
-		exports.MINOR = exports.MAJOR;
+		exports$1.CONNECTION_TOKEN_CHARS = exports$1.HEADER_CHARS.filter((c) => c !== 44);
+		exports$1.MAJOR = exports$1.NUM_MAP;
+		exports$1.MINOR = exports$1.MAJOR;
 		var HEADER_STATE;
 		(function (HEADER_STATE) {
 		    HEADER_STATE[HEADER_STATE["GENERAL"] = 0] = "GENERAL";
@@ -3980,8 +3980,8 @@ function requireConstants$4 () {
 		    HEADER_STATE[HEADER_STATE["CONNECTION_CLOSE"] = 6] = "CONNECTION_CLOSE";
 		    HEADER_STATE[HEADER_STATE["CONNECTION_UPGRADE"] = 7] = "CONNECTION_UPGRADE";
 		    HEADER_STATE[HEADER_STATE["TRANSFER_ENCODING_CHUNKED"] = 8] = "TRANSFER_ENCODING_CHUNKED";
-		})(HEADER_STATE = exports.HEADER_STATE || (exports.HEADER_STATE = {}));
-		exports.SPECIAL_HEADERS = {
+		})(HEADER_STATE = exports$1.HEADER_STATE || (exports$1.HEADER_STATE = {}));
+		exports$1.SPECIAL_HEADERS = {
 		    'connection': HEADER_STATE.CONNECTION,
 		    'content-length': HEADER_STATE.CONTENT_LENGTH,
 		    'proxy-connection': HEADER_STATE.CONNECTION,
@@ -8876,10 +8876,10 @@ function requireClientH1 () {
 	const TIMEOUT_KEEP_ALIVE = 8 | USE_NATIVE_TIMER;
 
 	class Parser {
-	  constructor (client, socket, { exports }) {
+	  constructor (client, socket, { exports: exports$1 }) {
 	    assert(Number.isFinite(client[kMaxHeadersSize]) && client[kMaxHeadersSize] > 0);
 
-	    this.llhttp = exports;
+	    this.llhttp = exports$1;
 	    this.ptr = this.llhttp.llhttp_alloc(constants.TYPE.RESPONSE);
 	    this.client = client;
 	    this.socket = socket;
@@ -35158,7 +35158,7 @@ var hasRequiredUtils;
 function requireUtils () {
 	if (hasRequiredUtils) return utils;
 	hasRequiredUtils = 1;
-	(function (exports) {
+	(function (exports$1) {
 
 		const {
 		  REGEX_BACKSLASH,
@@ -35167,13 +35167,13 @@ function requireUtils () {
 		  REGEX_SPECIAL_CHARS_GLOBAL
 		} = /*@__PURE__*/ requireConstants();
 
-		exports.isObject = val => val !== null && typeof val === 'object' && !Array.isArray(val);
-		exports.hasRegexChars = str => REGEX_SPECIAL_CHARS.test(str);
-		exports.isRegexChar = str => str.length === 1 && exports.hasRegexChars(str);
-		exports.escapeRegex = str => str.replace(REGEX_SPECIAL_CHARS_GLOBAL, '\\$1');
-		exports.toPosixSlashes = str => str.replace(REGEX_BACKSLASH, '/');
+		exports$1.isObject = val => val !== null && typeof val === 'object' && !Array.isArray(val);
+		exports$1.hasRegexChars = str => REGEX_SPECIAL_CHARS.test(str);
+		exports$1.isRegexChar = str => str.length === 1 && exports$1.hasRegexChars(str);
+		exports$1.escapeRegex = str => str.replace(REGEX_SPECIAL_CHARS_GLOBAL, '\\$1');
+		exports$1.toPosixSlashes = str => str.replace(REGEX_BACKSLASH, '/');
 
-		exports.isWindows = () => {
+		exports$1.isWindows = () => {
 		  if (typeof navigator !== 'undefined' && navigator.platform) {
 		    const platform = navigator.platform.toLowerCase();
 		    return platform === 'win32' || platform === 'windows';
@@ -35186,20 +35186,20 @@ function requireUtils () {
 		  return false;
 		};
 
-		exports.removeBackslashes = str => {
+		exports$1.removeBackslashes = str => {
 		  return str.replace(REGEX_REMOVE_BACKSLASH, match => {
 		    return match === '\\' ? '' : match;
 		  });
 		};
 
-		exports.escapeLast = (input, char, lastIdx) => {
+		exports$1.escapeLast = (input, char, lastIdx) => {
 		  const idx = input.lastIndexOf(char, lastIdx);
 		  if (idx === -1) return input;
-		  if (input[idx - 1] === '\\') return exports.escapeLast(input, char, idx - 1);
+		  if (input[idx - 1] === '\\') return exports$1.escapeLast(input, char, idx - 1);
 		  return `${input.slice(0, idx)}\\${input.slice(idx)}`;
 		};
 
-		exports.removePrefix = (input, state = {}) => {
+		exports$1.removePrefix = (input, state = {}) => {
 		  let output = input;
 		  if (output.startsWith('./')) {
 		    output = output.slice(2);
@@ -35208,7 +35208,7 @@ function requireUtils () {
 		  return output;
 		};
 
-		exports.wrapOutput = (input, state = {}, options = {}) => {
+		exports$1.wrapOutput = (input, state = {}, options = {}) => {
 		  const prepend = options.contains ? '' : '^';
 		  const append = options.contains ? '' : '$';
 
@@ -35219,7 +35219,7 @@ function requireUtils () {
 		  return output;
 		};
 
-		exports.basename = (path, { windows } = {}) => {
+		exports$1.basename = (path, { windows } = {}) => {
 		  const segs = path.split(windows ? /[\\/]/ : '/');
 		  const last = segs[segs.length - 1];
 
@@ -37474,6 +37474,19 @@ function requirePicomatch () {
 var picomatchExports = /*@__PURE__*/ requirePicomatch();
 var picomatch = /*@__PURE__*/getDefaultExportFromCjs(picomatchExports);
 
+// [LAW:one-source-of-truth] Every entry the action owns at the gh-pages root, named once. The writers and
+//   readers of each entry join its name from here, and sanitizeRef keeps every slot name off all of them.
+const ROOT_ENTRIES = {
+    manifest: 'versions.json',
+    versionIndex: '_versions',
+    redirect: 'index.html',
+    robots: 'robots.txt',
+    sitemap: 'sitemap.xml',
+    health: '_health.json',
+    cname: 'CNAME',
+    nojekyll: '.nojekyll',
+};
+
 // [LAW:single-enforcer] Ref sanitization is the single enforcement point for slot names: a slot name is
 //   a string sanitizeRef maps to itself, so it is filesystem-safe (T-01-01) and URL-safe by construction.
 // [LAW:dataflow-not-control-flow] resolveContext always runs the same steps; basePath variability lives in the data (config + cname flag).
@@ -37481,6 +37494,8 @@ var picomatch = /*@__PURE__*/getDefaultExportFromCjs(picomatchExports);
 // is a URL path segment as written: it needs no percent-encoding, no escaping in HTML, XML or JS
 // strings, and means nothing to String.prototype.replace, so every output path writes a slot raw.
 const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/gu;
+// Root entry names folded to lower case: on a case-insensitive filesystem `CNAME` and `cname` are one entry.
+const ROOT_ENTRY_NAMES = new Set(Object.values(ROOT_ENTRIES).map((name) => name.toLowerCase()));
 /**
  * `~XX` for each UTF-8 byte of `char`: percent-encoding with `~` as the escape character, so the
  * escape is itself made of slot characters and a ref loses nothing (`v1#rc` -> `v1~23rc`,
@@ -37491,8 +37506,8 @@ function escapeSlotChar(char) {
 }
 /**
  * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
- * a URL. Implements D-04/D-06 and mitigates T-01-01 (path traversal via ref name). Idempotent: a slot
- * name sanitizes to itself.
+ * a URL, and never the name of a root entry the action owns. Implements D-04/D-06 and mitigates
+ * T-01-01 (path traversal via ref name). Idempotent: a slot name sanitizes to itself.
  */
 function sanitizeRef(ref) {
     // Strip well-known ref prefixes. PR refs map to pr-N.
@@ -37515,7 +37530,9 @@ function sanitizeRef(ref) {
     if (safe.length === 0) {
         throw new Error(`Ref "${ref}" sanitized to an empty string`);
     }
-    return safe;
+    // A name the action owns at the root has its first character escaped (`_versions` -> `~5Fversions`),
+    // so the slot directory sits beside the root entry instead of on it.
+    return ROOT_ENTRY_NAMES.has(safe.toLowerCase()) ? escapeSlotChar(safe[0]) + safe.slice(1) : safe;
 }
 /**
  * Test a versionSlot against a list of glob patterns. Empty list matches everything.
@@ -37537,7 +37554,8 @@ function resolveContext(config, cname = false) {
     //   wrong ref. An explicit version is an explicit decision to deploy, so filtering is bypassed
     //   by encoding "explicit version deploys always match" in the match input.
     const hasExplicitVersion = config.version.length > 0;
-    const versionSlot = sanitizeRef(hasExplicitVersion ? config.version : config.ref);
+    const versionName = hasExplicitVersion ? config.version : config.ref;
+    const versionSlot = sanitizeRef(versionName);
     if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
         throw new Error(`Ref ${config.ref} (slot ${versionSlot}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`);
     }
@@ -37557,6 +37575,7 @@ function resolveContext(config, cname = false) {
     basePath = ('/' + basePath.replace(/^\/+|\/+$/g, '') + '/').replace(/\/+/g, '/');
     return {
         versionSlot,
+        versionName,
         originalRef: config.ref,
         sha: process.env.GITHUB_SHA ?? '',
         timestamp: new Date().toISOString(),
@@ -37687,7 +37706,7 @@ const PR_VERSION_RE$4 = /^pr-\d+$/;
  */
 function renderRedirectHtml(manifest) {
     const latest = manifest.versions.find((v) => !PR_VERSION_RE$4.test(v.version));
-    const target = latest ? `./${escapeHtml(latest.version)}/` : './_versions/';
+    const target = latest ? `./${escapeHtml(latest.version)}/` : `./${ROOT_ENTRIES.versionIndex}/`;
     return (`<!DOCTYPE html>\n` +
         `<html lang="en">\n` +
         `<head>\n` +
@@ -38546,8 +38565,8 @@ const STATS_SCRIPT = `
       container.appendChild(row);
     }
   }
-  fetch('../versions.json', { cache: 'no-store' }).then(function(r){
-    if (!r.ok) throw new Error('versions.json fetch failed: ' + r.status);
+  fetch('../${ROOT_ENTRIES.manifest}', { cache: 'no-store' }).then(function(r){
+    if (!r.ok) throw new Error('${ROOT_ENTRIES.manifest} fetch failed: ' + r.status);
     return r.json();
   }).then(function(manifest){
     var versions = (manifest && manifest.versions) || [];
@@ -39134,7 +39153,7 @@ async function commitAndPush(worktree, context, remote, targetBranch) {
  */
 async function readCnameFile(workdir) {
     try {
-        const raw = await promises.readFile(path__namespace$1.join(workdir, 'CNAME'), 'utf8');
+        const raw = await promises.readFile(path__namespace$1.join(workdir, ROOT_ENTRIES.cname), 'utf8');
         return raw.trim();
     }
     catch (err) {
@@ -39197,9 +39216,9 @@ async function renameVersionDirectories(workdir, siteRoot, renames) {
 async function writeIndexHtml(workdir, manifest, repoMeta) {
     // Root index.html redirects to the latest non-PR version.
     const redirectHtml = renderRedirectHtml(manifest);
-    await promises.writeFile(path__namespace$1.join(workdir, 'index.html'), redirectHtml, 'utf8');
+    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.redirect), redirectHtml, 'utf8');
     // Version listing lives at _versions/index.html — still accessible, just not the root.
-    const versionsDir = path__namespace$1.join(workdir, '_versions');
+    const versionsDir = path__namespace$1.join(workdir, ROOT_ENTRIES.versionIndex);
     await promises.mkdir(versionsDir, { recursive: true });
     const listingHtml = renderIndexHtml(manifest, repoMeta);
     await promises.writeFile(path__namespace$1.join(versionsDir, 'index.html'), listingHtml, 'utf8');
@@ -39209,8 +39228,8 @@ async function injectWidgetIntoSlots(workdir, siteRoot, slots, customization) {
     for (const slot of slots) {
         addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
             siteRoot,
-            manifestPath: 'versions.json',
-            indexPath: '_versions/',
+            manifestPath: ROOT_ENTRIES.manifest,
+            indexPath: `${ROOT_ENTRIES.versionIndex}/`,
             currentVersion: slot,
             ...customization,
         }));
@@ -39239,7 +39258,7 @@ async function placeStorageWrapperInSlots(workdir, repoMeta, slots) {
  */
 async function writeRobotsTxt(workdir, manifest, siteRoot) {
     const txt = renderRobotsTxt(manifest, siteRoot);
-    await promises.writeFile(path__namespace$1.join(workdir, 'robots.txt'), txt, 'utf8');
+    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.robots), txt, 'utf8');
 }
 /**
  * The pages of each slot in `slots`, in the given order. A slot with no directory has no pages.
@@ -39252,7 +39271,7 @@ async function readSlotPages(workdir, slots) {
  * No non-PR version means no copies and an empty urlset.
  */
 async function writeSitemapXml(workdir, copies, baseUrl, lastmod) {
-    await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
+    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.sitemap), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
 }
 /**
  * Write _health.json at the worktree root. Pure projection of the manifest +
@@ -39260,14 +39279,14 @@ async function writeSitemapXml(workdir, copies, baseUrl, lastmod) {
  */
 async function writeHealthJson(workdir, manifest, generatedAt) {
     const record = renderHealth(manifest, generatedAt);
-    await promises.writeFile(path__namespace$1.join(workdir, '_health.json'), serializeHealth(record), 'utf8');
+    await promises.writeFile(path__namespace$1.join(workdir, ROOT_ENTRIES.health), serializeHealth(record), 'utf8');
 }
 /**
  * Write the client-side stats dashboard at _versions/stats.html. The rendered
  * page is static HTML + inline JS that fetches versions.json at runtime.
  */
 async function writeStatsHtml(workdir, repoMeta) {
-    const versionsDir = path__namespace$1.join(workdir, '_versions');
+    const versionsDir = path__namespace$1.join(workdir, ROOT_ENTRIES.versionIndex);
     await promises.mkdir(versionsDir, { recursive: true });
     const html = renderStatsHtml(repoMeta);
     await promises.writeFile(path__namespace$1.join(versionsDir, 'stats.html'), html, 'utf8');
@@ -39291,13 +39310,12 @@ async function applySeoTags(workdir, copies, siteBase, currentPrSlot) {
 
 // [LAW:one-source-of-truth] versions.json is the sole authoritative record of deployed versions (MNFST-01).
 // [LAW:dataflow-not-control-flow] updateManifest always performs the same ops; idempotent replace is encoded in data (filter + prepend).
-const MANIFEST_FILE = 'versions.json';
 /**
  * Read versions.json from workdir. Returns an empty manifest if the file
  * does not exist. Throws if schema is not 1 (T-01-06).
  */
 async function readManifest(workdir) {
-    const file = path$1.join(workdir, MANIFEST_FILE);
+    const file = path$1.join(workdir, ROOT_ENTRIES.manifest);
     let raw;
     try {
         raw = await promises.readFile(file, 'utf8');
@@ -39346,7 +39364,7 @@ function removeVersions(manifest, versions) {
  * Write the manifest to workdir/versions.json as formatted JSON.
  */
 async function writeManifest(workdir, manifest) {
-    const file = path$1.join(workdir, MANIFEST_FILE);
+    const file = path$1.join(workdir, ROOT_ENTRIES.manifest);
     await promises.writeFile(file, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 }
 /**
@@ -39362,7 +39380,7 @@ function renameUnsafeSlots(manifest) {
         const holder = holders.get(to);
         if (holder !== undefined) {
             throw new Error(`Deployed slots "${holder}" and "${from}" both become slot "${to}" under the URL-safe slot-name rule; ` +
-                `remove one of them from ${MANIFEST_FILE} and its directory`);
+                `remove one of them from ${ROOT_ENTRIES.manifest} and its directory`);
         }
         holders.set(to, from);
     }
@@ -39403,7 +39421,7 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
         await promises.writeFile(file, corrected, 'utf8');
     }
     // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
-    await promises.writeFile(path$1.join(workdir, '.nojekyll'), '', { flag: 'a' });
+    await promises.writeFile(path$1.join(workdir, ROOT_ENTRIES.nojekyll), '', { flag: 'a' });
 }
 function selectTransform(mode) {
     if (mode === 'base-tag') {
@@ -39570,6 +39588,7 @@ async function deploy(config, source) {
         info(`Publish attempt ${attempt} on ${tip}: ${published.kind}`);
         if (published.kind !== 'stale') {
             return {
+                versionName: rendered.context.versionName,
                 version: rendered.context.versionSlot,
                 url: rendered.url,
                 removedVersions: rendered.removedVersions,
@@ -39588,7 +39607,7 @@ async function deploy(config, source) {
 // The one summary line of a deploy, printed by both the CLI and the Action.
 function deploySummary(result) {
     const placed = ({ inserted, refreshed, current }) => `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
-    return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+    return `Deployed ${result.versionName} as ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
         `nav widget ${placed(result.widget)}; ` +
         `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
         `sitemap ${result.sitemap.urls} URL(s): ${result.sitemap.urls - result.sitemap.fromOlderVersions} from ` +
@@ -39773,7 +39792,7 @@ async function upsertPreviewComment(octokit, opts) {
 
 // [LAW:single-enforcer] This module is the sole place that knows how to determine
 //   which PR versions are stale. The adapter calls it; the pipeline never does.
-// [LAW:one-way-deps] This module depends on types.ts only. It does not depend on
+// [LAW:one-way-deps] This module depends on types.ts and root-entries.ts only. It does not depend on
 //   the deploy pipeline or any pipeline stage module.
 // [LAW:dataflow-not-control-flow] findClosedPrVersions always queries all PR entries
 //   and always returns a list. Empty input → empty output. API errors skip individual
@@ -39803,7 +39822,7 @@ async function fetchRemoteManifest(octokit, owner, repo, targetBranch) {
         res = await octokit.rest.repos.getContent({
             owner,
             repo,
-            path: 'versions.json',
+            path: ROOT_ENTRIES.manifest,
             ref: targetBranch,
         });
     }

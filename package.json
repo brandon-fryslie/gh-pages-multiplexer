@@ -14,14 +14,15 @@
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "test": "tsc -p tsconfig.test.json && vitest run --reporter=verbose",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check:dist": "scripts/check-dist.sh"
   },
   "dependencies": {
-    "@actions/core": "^3.0.0",
+    "@actions/core": "^3.0.1",
     "@actions/exec": "^3.0.0",
-    "@actions/github": "^9.0.0",
+    "@actions/github": "^9.1.1",
     "@actions/io": "^3.0.2",
-    "picomatch": "^4.0.0"
+    "picomatch": "^4.0.7"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^29.0.2",

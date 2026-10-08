@@ -391,9 +391,10 @@ cd gh-pages-multiplexer
 pnpm install
 pnpm test             # typechecks src and tests (tsc), then runs the vitest suite
 pnpm run build        # produces dist/index.js (Action) and dist/cli.js (CLI)
+pnpm run check:dist   # rebuilds dist/ and fails if it differs from what is committed
 ```
 
-Tests use real git fixtures and real filesystem operations — no mocks of git or fs. Build is a Rollup bundle; the `dist/` directory is checked in so the Action can be consumed via `uses: owner/repo@v1` without a build step on the consumer side.
+Tests use real git fixtures and real filesystem operations — no mocks of git or fs. Build is a Rollup bundle; the `dist/` directory is checked in so the Action can be consumed via `uses: owner/repo@v1` without a build step on the consumer side. Commit the rebuilt `dist/` with every change to `src/` or the lockfile; CI runs `check:dist` and fails when they disagree.
 
 ---
 
