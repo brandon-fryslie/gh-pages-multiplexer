@@ -13,7 +13,7 @@
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
-    "test": "tsc && vitest run --reporter=verbose",
+    "test": "tsc -p tsconfig.test.json && vitest run --reporter=verbose",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
