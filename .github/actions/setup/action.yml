@@ -1,0 +1,21 @@
+name: setup
+description: Install pnpm, the Node major the Action runs on, and the locked dependencies.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+    # [LAW:one-source-of-truth] Build and test on the Node major the Action runs on: action.yml runs.using.
+    - id: runtime
+      shell: bash
+      run: |
+        using=$(yq '.runs.using' action.yml)
+        major=${using#node}
+        [[ "$major" =~ ^[0-9]+$ ]] || { echo "ERROR: action.yml runs.using is '$using', not nodeNN" >&2; exit 1; }
+        echo "node=$major" >> "$GITHUB_OUTPUT"
+    - uses: actions/setup-node@v5
+      with:
+        node-version: ${{ steps.runtime.outputs.node }}
+        cache: pnpm
+    - shell: bash
+      run: pnpm install --frozen-lockfile
