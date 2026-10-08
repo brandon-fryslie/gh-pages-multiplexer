@@ -1,11 +1,18 @@
-// [LAW:single-enforcer] Ref sanitization is the single enforcement point for filesystem-safe version slot names (T-01-01).
+// [LAW:single-enforcer] Ref sanitization is the single enforcement point for slot names: a slot name is
+//   a string sanitizeRef maps to itself, so it is filesystem-safe (T-01-01) and URL-safe by construction.
 // [LAW:dataflow-not-control-flow] resolveContext always runs the same steps; basePath variability lives in the data (config + cname flag).
 import picomatch from 'picomatch';
 import type { DeployConfig, DeploymentContext } from './types.js';
 
+// Everything a slot name may not contain. What remains (RFC 3986 unreserved characters plus `@` and `+`)
+// is a URL path segment as written: it needs no percent-encoding, no escaping in HTML, XML or JS
+// strings, and means nothing to String.prototype.replace, so every output path writes a slot raw.
+const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/g;
+
 /**
- * Sanitize a git ref into a single-segment, filesystem-safe directory name.
- * Implements D-04/D-06 and mitigates T-01-01 (path traversal via ref name).
+ * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
+ * a URL. Implements D-04/D-06 and mitigates T-01-01 (path traversal via ref name). Idempotent: a slot
+ * name sanitizes to itself.
  */
 export function sanitizeRef(ref: string): string {
   // Strip well-known ref prefixes. PR refs map to pr-N.
@@ -22,11 +29,12 @@ export function sanitizeRef(ref: string): string {
   const segments = noControl.split('/').filter((seg) => seg !== '..' && seg.length > 0);
   const joined = segments.join('-');
 
-  // Replace remaining filesystem-unsafe characters with hyphens.
+  // Replace every other non-slot character with a hyphen. A leading dot would make a hidden or
+  // relative (`.`) directory, so leading dots go with leading hyphens.
   const safe = joined
-    .replace(/[\\:*?"<>|/]/g, '-')
+    .replace(NON_SLOT_CHARS, '-')
     .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/^[-.]+|-$/g, '');
 
   if (safe.length === 0) {
     throw new Error(`Ref "${ref}" sanitized to an empty string`);

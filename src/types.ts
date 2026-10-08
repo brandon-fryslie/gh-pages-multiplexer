@@ -109,11 +109,18 @@ export interface Manifest {
   versions: ManifestEntry[];
 }
 
+/** A deployed slot whose name predates the slot-name rule, and the slot name it was renamed to. */
+export interface SlotRename {
+  from: string;
+  to: string;
+}
+
 /** Result returned from the deploy pipeline */
 export interface DeployResult {
   version: string;
   url: string;
   removedVersions: string[];  // version slots removed during cleanup
+  renamedVersions: SlotRename[];  // deployed slots renamed to slot names this deploy
   outcome: 'pushed' | 'unchanged';  // whether the deploy published a commit or matched the tip already
   attempts: number;  // publish attempts; >1 means a concurrent deploy moved the tip and we rebuilt
   widget: PlacementCounts;  // what placing the current nav widget did to the pages of every slot

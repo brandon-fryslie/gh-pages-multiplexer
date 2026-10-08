@@ -37,12 +37,12 @@ export async function findHtmlFilesRelative(slotDir: string): Promise<string[]> 
 
 /**
  * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`
- * ("https://example.com/repo", no trailing slash). Slot and page names are filesystem names, so every
- * path segment is percent-encoded: a space or `#` in a name must not end up raw in the URL.
+ * ("https://example.com/repo", no trailing slash). A slot name is URL-safe as written; page names are
+ * whatever the build produced, so each of their path segments is percent-encoded: a space or `#` in a
+ * file name must not end up raw in the URL.
  */
 export function slotPageUrl(siteBase: string, slot: string, relPath: string): string {
-  const segments = [slot, ...relPath.split('/')];
-  return `${siteBase}/${segments.map(encodeURIComponent).join('/')}`;
+  return `${siteBase}/${slot}/${relPath.split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export interface PlacedPage {

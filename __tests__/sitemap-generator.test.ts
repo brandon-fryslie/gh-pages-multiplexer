@@ -49,16 +49,16 @@ describe('renderSitemapXml', () => {
     expect(xml).toContain('<lastmod>2026-04-06</lastmod>');
   });
 
-  it('percent-encodes slot and page names in <loc>', () => {
+  it('percent-encodes page names in <loc>; the slot name is URL-safe as written', () => {
     const xml = renderSitemapXml(
       'https://example.com/repo',
-      'v1 beta',
+      'v1-beta',
       ['docs/my page.html', 'faq#1.html', 'a&b.html'],
       '2026-04-06T12:00:00Z',
     );
-    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/docs/my%20page.html</loc>');
-    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/faq%231.html</loc>');
-    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/a%26b.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1-beta/docs/my%20page.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1-beta/faq%231.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1-beta/a%26b.html</loc>');
   });
 
   it('emits empty urlset when no HTML files provided', () => {

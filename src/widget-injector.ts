@@ -428,7 +428,7 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="' + SITE_ROOT + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + SITE_ROOT + name + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }

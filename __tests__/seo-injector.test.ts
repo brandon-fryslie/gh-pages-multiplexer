@@ -77,12 +77,12 @@ describe('injectCanonicalIntoDir', () => {
     expect(await injectCanonicalIntoDir(dir, 'https://example.com', 'v1')).toBe(0);
   });
 
-  it('percent-encodes slot and page names in the canonical URL', async () => {
+  it('percent-encodes page names in the canonical URL; the slot name is URL-safe as written', async () => {
     await mkdir(path.join(dir, 'my docs'), { recursive: true });
     await writeFile(path.join(dir, 'my docs', 'faq#1.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/repo', 'v1 beta');
+    await injectCanonicalIntoDir(dir, 'https://example.com/repo', 'v1-beta');
     const html = await readFile(path.join(dir, 'my docs', 'faq#1.html'), 'utf8');
-    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1%20beta/my%20docs/faq%231.html">');
+    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1-beta/my%20docs/faq%231.html">');
   });
 
   it('escapes quotes in URLs', async () => {

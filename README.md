@@ -222,7 +222,7 @@ Note: the CLI never posts PR preview comments — that's an Action-only feature 
 
 ## How versions are named
 
-The version subdirectory is derived from the git ref, sanitized to be filesystem-safe:
+The version subdirectory is derived from the git ref (or the `version` input), sanitized so the name is safe both as a directory and as a URL path segment. Letters, digits, `.`, `_`, `~`, `@`, `+` and `-` are kept, and every other character becomes `-`:
 
 | Ref | Version directory |
 |---|---|
@@ -230,6 +230,10 @@ The version subdirectory is derived from the git ref, sanitized to be filesystem
 | `refs/heads/main` | `main/` |
 | `refs/heads/feature/auth` | `feature-auth/` |
 | `refs/pull/42/merge` | `pr-42/` *(set via `version-ref` in workflow)* |
+| `refs/tags/@scope/pkg@1.0.0` | `@scope-pkg@1.0.0/` |
+| `refs/tags/v1#rc` | `v1-rc/` |
+
+A version deployed by an earlier release under a name that no longer passes this rule (such as `v1#rc/`) is renamed the next time anything deploys. Its directory moves, its pages are rebased onto the new base path, and the rename is printed in the deploy summary. If two deployed versions would end up with the same name, the deploy fails and names both.
 
 Redeploying the same ref replaces that version subdirectory atomically — the new commit history is appended to the manifest entry.
 

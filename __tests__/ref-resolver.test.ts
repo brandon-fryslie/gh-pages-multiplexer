@@ -72,6 +72,29 @@ describe('sanitizeRef', () => {
     expect(sanitizeRef('refs/heads/foo///bar')).toBe('foo-bar');
   });
 
+  it('replaces every character a URL path segment cannot carry raw with a hyphen', () => {
+    expect(sanitizeRef('refs/tags/v1#rc')).toBe('v1-rc');
+    expect(sanitizeRef('refs/heads/a&b%c d?e')).toBe('a-b-c-d-e');
+    expect(sanitizeRef("refs/heads/x$y'z(1)é")).toBe('x-y-z-1');
+  });
+
+  it('keeps the URL-safe characters a tag commonly carries', () => {
+    expect(sanitizeRef('refs/tags/@scope/pkg@1.2.0+build.5~rc')).toBe('@scope-pkg@1.2.0+build.5~rc');
+  });
+
+  it('never starts with a dot, so a slot is never hidden or the current directory', () => {
+    expect(sanitizeRef('.well-known')).toBe('well-known');
+    expect(() => sanitizeRef('.')).toThrow();
+  });
+
+  it('maps a slot name to itself', () => {
+    const refs = ['refs/tags/v1#rc', 'refs/heads/feature/a&b', 'refs/pull/7/merge', 'refs/tags/@s/p@1+b', 'refs/heads/-.x-'];
+    for (const ref of refs) {
+      const slot = sanitizeRef(ref);
+      expect(sanitizeRef(slot)).toBe(slot);
+    }
+  });
+
   it('throws on empty result', () => {
     expect(() => sanitizeRef('refs/heads/---')).toThrow();
   });
@@ -174,6 +197,12 @@ describe('resolveContext', () => {
     expect(ctx.versionSlot).toBe('etc-passwd');
     expect(ctx.versionSlot).not.toContain('..');
     expect(ctx.versionSlot).not.toContain('/');
+  });
+
+  it('a URL-unsafe ref yields a base path that names the slot as written', () => {
+    const ctx = resolveContext(baseConfig({ ref: 'refs/tags/v1#rc' }));
+    expect(ctx.versionSlot).toBe('v1-rc');
+    expect(ctx.basePath).toBe('/my-repo/v1-rc/');
   });
 
   it('empty version field falls back to ref-derived slot', () => {

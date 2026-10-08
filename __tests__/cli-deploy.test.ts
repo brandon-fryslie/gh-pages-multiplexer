@@ -81,8 +81,8 @@ describe('cli deploy against a real remote', () => {
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed '))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
-      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 0 slot(s))\n',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
     expect(await shown('v1.0.0/index.html')).toContain('"gh-pm:owner/repo/v1.0.0:"');
@@ -104,8 +104,8 @@ describe('cli deploy against a real remote', () => {
 
     // The second deploy re-places v1.0.0's content, so its one page gets the widget inserted again.
     expect(output.filter((line) => line.startsWith('Deployed v1.0.0'))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
     ]);
     expect(output.filter((line) => line.includes(TOKEN))).toEqual([]);
     expect(await readFile(path.join(clone, '.git', 'config'))).toEqual(configBefore);
@@ -118,5 +118,37 @@ describe('cli deploy against a real remote', () => {
     const bot = 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>';
     const log = await git(root, '--git-dir', remote, 'log', '--format=%an <%ae>|%cn <%ce>', 'gh-pages');
     expect(log.split('\n')).toEqual([`${bot}|${bot}`, `${bot}|${bot}`]);
+  });
+
+  it('renames a slot deployed before the slot-name rule, rebasing its pages, and links it raw everywhere', async () => {
+    const site = path.join(root, 'site');
+    await mkdir(site);
+    await writeFile(path.join(site, 'index.html'), '<html><head></head><body>site</body></html>');
+    const deployRef = (ref: string): Promise<number> =>
+      main(['deploy', `--source-dir=${site}`, '--repo=owner/repo', `--ref=${ref}`], { GITHUB_TOKEN: TOKEN });
+    expect(await deployRef('refs/tags/v1-rc')).toBe(0);
+
+    // What an earlier release left for the tag v1#rc: its slot, base path and manifest entry name it raw.
+    const pages = path.join(root, 'pages');
+    await run('git', ['clone', '--quiet', '--branch', 'gh-pages', remote, pages]);
+    await git(pages, 'mv', 'v1-rc', 'v1#rc');
+    const page = path.join(pages, 'v1#rc', 'index.html');
+    await writeFile(page, (await readFile(page, 'utf8')).replaceAll('/repo/v1-rc/', '/repo/v1#rc/'));
+    const manifestFile = path.join(pages, 'versions.json');
+    await writeFile(manifestFile, (await readFile(manifestFile, 'utf8')).replace('"version": "v1-rc"', '"version": "v1#rc"'));
+    await git(pages, 'add', '-A');
+    await git(pages, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'legacy slot');
+    await git(pages, 'push', '--quiet', 'origin', 'gh-pages');
+
+    expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
+
+    expect(output.filter((line) => line.startsWith('Deployed v2.0.0'))).toEqual([
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 1 slot(s) v1#rc -> v1-rc)\n',
+    ]);
+    const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
+    expect(await shown('v1-rc/index.html')).toContain('<base href="/repo/v1-rc/">');
+    expect(await git(root, '--git-dir', remote, 'ls-tree', '--name-only', 'gh-pages')).not.toContain('v1#rc');
+    expect(JSON.parse(await shown('versions.json')).versions.map((v: { version: string }) => v.version)).toEqual(['v2.0.0', 'v1-rc']);
+    expect(await shown('_versions/index.html')).toContain('<a href="../v1-rc/">');
   });
 });
