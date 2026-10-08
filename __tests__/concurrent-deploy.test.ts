@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -130,7 +130,7 @@ afterEach(async () => {
 describe('concurrent deploys', () => {
   it('two deploys built on the same tip both land, and derived files match the final manifest', async () => {
     const seed = await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
-    expect(seed).toMatchObject({ outcome: 'pushed', attempts: 1 });
+    expect(seed).toMatchObject({ outcome: 'pushed', attempts: 1, widget: { inserted: 1, refreshed: 0, current: 0 } });
 
     const [a, b] = [await sourceClone('a'), await sourceClone('b')];
     const [cfgA, cfgB] = [await configFor('v1.0.0'), await configFor('v2.0.0')];
@@ -254,6 +254,26 @@ describe('concurrent deploys', () => {
     expect(await git(root, '--git-dir', remote, 'rev-list', '--count', TARGET)).toBe('1');
     expect(await git(source.dir, 'for-each-ref', 'refs/heads')).toBe(localBefore);
     await expectDerivedFilesMatchManifest();
+  });
+
+  it('deploying any slot refreshes the widget an earlier deploy left in every other slot', async () => {
+    await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
+    // Stand in for a slot deployed by an older release of this action: same marker, older script.
+    const editor = path.join(root, 'editor');
+    await run('git', ['clone', '--quiet', '--branch', TARGET, remote, editor]);
+    const page = path.join(editor, 'v0.9.0', 'index.html');
+    const widgetBlock = /<script><!-- gh-pages-multiplexer:nav-widget -->[\s\S]*?<\/script>/;
+    const current = await readFile(page, 'utf8');
+    const stale = current.replace(widgetBlock, '<script><!-- gh-pages-multiplexer:nav-widget -->var OLD;</script>');
+    expect(stale).not.toBe(current);
+    await writeFile(page, stale);
+    await git(editor, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-am', 'old widget');
+    await git(editor, 'push', '--quiet', 'origin', TARGET);
+
+    const result = await deploy(await configFor('v1.0.0'), await sourceClone('a'));
+
+    expect(result.widget).toEqual({ inserted: 1, refreshed: 1, current: 0 });
+    expect((await remoteFile('v0.9.0/index.html')).match(widgetBlock)?.[0]).toBe(current.match(widgetBlock)?.[0]);
   });
 
   it('redeploying identical content is a successful no-op', async () => {

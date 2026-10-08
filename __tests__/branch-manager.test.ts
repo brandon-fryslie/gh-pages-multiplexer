@@ -10,11 +10,11 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetForVersion } from '../src/branch-manager.js';
-import { WIDGET_MARKER } from '../src/widget-injector.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetIntoSlots } from '../src/branch-manager.js';
+import { WIDGET_MARKER, getWidgetScriptTag } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
-import type { DeploymentContext, Manifest } from '../src/types.js';
+import type { DeploymentContext, Manifest, WidgetPlacementCounts } from '../src/types.js';
 import { readFile } from 'node:fs/promises';
 
 // withWorktree / commitAndPush run against real git in
@@ -172,10 +172,11 @@ describe('widget injection in deploy pipeline', () => {
   }
 
   const noCustomization = { icon: '', label: '', position: '', color: '' };
-  async function runPipelineStages(): Promise<number> {
-    await writeIndexHtml(workdir, manifest, repoMeta);
+  const slots = (m: Manifest): string[] => m.versions.map((v) => v.version);
+  async function runPipelineStages(m: Manifest = manifest): Promise<WidgetPlacementCounts> {
+    await writeIndexHtml(workdir, m, repoMeta);
     await placeContent(workdir, sourceDir, wctx, 'base-tag');
-    return injectWidgetForVersion(workdir, versionSlot, repoMeta, noCustomization);
+    return injectWidgetIntoSlots(workdir, slots(m), noCustomization);
   }
 
   it('Test 1: full pipeline injects widget into every deployed html and leaves non-html bytes intact', async () => {
@@ -187,7 +188,7 @@ describe('widget injection in deploy pipeline', () => {
     await writeSource('assets/app.js', jsBuf);
 
     const injected = await runPipelineStages();
-    expect(injected).toBe(2);
+    expect(injected).toEqual({ inserted: 2, refreshed: 0, current: 0 });
 
     const root = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
     const about = await fsReadFile(path.join(workdir, versionSlot, 'about/index.html'), 'utf8');
@@ -211,18 +212,32 @@ describe('widget injection in deploy pipeline', () => {
     expect(rootIdx).not.toContain(WIDGET_MARKER);
   });
 
-  it('Test 3: sibling version directories are byte-identical after deploy', async () => {
-    const siblingDir = path.join(workdir, 'v0.9.0');
-    await mkdir(siblingDir, { recursive: true });
-    const siblingHtml = '<!doctype html><html><body>old</body></html>';
-    await writeFile(path.join(siblingDir, 'index.html'), siblingHtml, 'utf8');
+  it('Test 3: an older slot in the manifest serves the current widget; a directory outside it is untouched', async () => {
+    const older = 'v0.9.0';
+    const withOlder: Manifest = {
+      ...manifest,
+      versions: [...manifest.versions, { version: older, ref: 'refs/tags/v0.9.0', sha: 'def456', timestamp: '2026-04-01T00:00:00Z', commits: [] }],
+    };
+    await mkdir(path.join(workdir, older), { recursive: true });
+    const olderPage = (block: string): string => `<!doctype html><html><body>old${block}</body></html>`;
+    await writeFile(path.join(workdir, older, 'index.html'), olderPage(`<script>${WIDGET_MARKER}var STALE;</script>`), 'utf8');
+    const stray = path.join(workdir, 'not-a-slot');
+    await mkdir(stray, { recursive: true });
+    const strayHtml = '<!doctype html><html><body>stray</body></html>';
+    await writeFile(path.join(stray, 'index.html'), strayHtml, 'utf8');
 
     await writeSource('index.html', '<!doctype html><html><head></head><body>new</body></html>');
-    await runPipelineStages();
+    const placed = await runPipelineStages(withOlder);
 
-    const after = await fsReadFile(path.join(siblingDir, 'index.html'), 'utf8');
-    expect(after).toBe(siblingHtml);
-    expect(after).not.toContain(WIDGET_MARKER);
+    expect(placed).toEqual({ inserted: 1, refreshed: 1, current: 0 });
+    const currentWidget = getWidgetScriptTag({
+      manifestUrl: '../versions.json',
+      indexUrl: '../_versions/',
+      currentVersion: older,
+      ...noCustomization,
+    });
+    expect(await fsReadFile(path.join(workdir, older, 'index.html'), 'utf8')).toBe(olderPage(currentWidget));
+    expect(await fsReadFile(path.join(stray, 'index.html'), 'utf8')).toBe(strayHtml);
   });
 
   it('Test 4: re-running the pipeline is idempotent (exactly one marker per file)', async () => {
@@ -230,8 +245,8 @@ describe('widget injection in deploy pipeline', () => {
     await writeSource('nested/page.html', '<!doctype html><html><head></head><body>2</body></html>');
 
     await runPipelineStages();
-    const second = await injectWidgetForVersion(workdir, versionSlot, repoMeta, noCustomization);
-    expect(second).toBe(0);
+    const second = await injectWidgetIntoSlots(workdir, slots(manifest), noCustomization);
+    expect(second).toEqual({ inserted: 0, refreshed: 0, current: 2 });
 
     const a = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
     const b = await fsReadFile(path.join(workdir, versionSlot, 'nested/page.html'), 'utf8');
@@ -256,12 +271,24 @@ describe('widget injection in deploy pipeline', () => {
     await writeSource('assets/logo.svg', '<svg/>');
 
     const injected = await runPipelineStages();
-    expect(injected).toBe(0);
+    expect(injected).toEqual({ inserted: 0, refreshed: 0, current: 0 });
 
     // Walk version dir, assert no marker
     const data = await fsReadFile(path.join(workdir, versionSlot, 'assets/data.json'), 'utf8');
     const svg = await fsReadFile(path.join(workdir, versionSlot, 'assets/logo.svg'), 'utf8');
     expect(data).not.toContain(WIDGET_MARKER);
     expect(svg).not.toContain(WIDGET_MARKER);
+  });
+
+  it('Test 7: a manifest slot with no directory on the branch does not stop the other slots', async () => {
+    await writeSource('index.html', '<!doctype html><html><head></head><body>1</body></html>');
+    const withEmptySlot: Manifest = {
+      schema: 2,
+      versions: [
+        ...manifest.versions,
+        { version: 'v0.9.0', ref: 'refs/tags/v0.9.0', sha: 'def456', timestamp: '2026-04-05T00:00:00Z', commits: [] },
+      ],
+    };
+    expect(await runPipelineStages(withEmptySlot)).toEqual({ inserted: 1, refreshed: 0, current: 0 });
   });
 });

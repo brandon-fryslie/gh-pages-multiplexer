@@ -8,7 +8,7 @@
 //   path (exit codes), not scattered short-circuits.
 import { parseArgs } from 'node:util';
 import type { DeployConfig } from './types.js';
-import { deploy } from './deploy.js';
+import { deploy, deploySummary } from './deploy.js';
 import { githubRemote } from './branch-manager.js';
 import { parseWidgetPosition, validateWidgetColor } from './widget-config.js';
 
@@ -173,7 +173,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
       dir: process.cwd(),
       remote: githubRemote(config.token, config.repo),
     });
-    process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s))\n`);
+    process.stdout.write(`${deploySummary(result)}\n`);
     return 0;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -9,14 +9,14 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, WidgetPlacementCounts } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
   commitAndPush,
   readCnameFile,
   writeIndexHtml,
-  injectWidgetForVersion,
+  injectWidgetIntoSlots,
   removeVersionDirectories,
   writeRobotsTxt,
   writeSitemapXml,
@@ -68,11 +68,19 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
         removedVersions: config.cleanupVersions,
         outcome: published.kind,
         attempts: attempt,
+        widget: rendered.widget,
       };
     }
     lostOn = { tip, rejection: published.rejection };
     core.warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
   }
+}
+
+// The one summary line of a deploy, printed by both the CLI and the Action.
+export function deploySummary(result: DeployResult): string {
+  const { inserted, refreshed, current } = result.widget;
+  return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+    `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
 }
 
 /**
@@ -84,7 +92,7 @@ async function renderDeployment(
   workdir: string,
   config: DeployConfig,
   sourceRepoDir: string,
-): Promise<{ context: DeploymentContext; url: string }> {
+): Promise<{ context: DeploymentContext; url: string; widget: WidgetPlacementCounts }> {
   // Stage 2: Resolve ref context. CNAME presence affects basePath computation.
   const cnameDomain = await readCnameFile(workdir);
   const context = resolveContext(config, cnameDomain !== null);
@@ -127,15 +135,14 @@ async function renderDeployment(
   // Stage 4: Place content (copy + base path correction + .nojekyll).
   await placeContent(workdir, config.sourceDir, context, config.basePathMode);
 
-  // Stage 4.5: Inject the navigation widget into every deployed HTML page.
+  // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
   // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
-  // [LAW:single-enforcer] Goes through branch-manager.injectWidgetForVersion -- the only writer to
+  // [LAW:single-enforcer] Goes through branch-manager.injectWidgetIntoSlots -- the only writer to
   // the gh-pages worktree.
   // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
-  const injectedCount = await injectWidgetForVersion(
+  const widget = await injectWidgetIntoSlots(
     workdir,
-    context.versionSlot,
-    { owner: repoOwner, repo: repoName },
+    cleanedManifest.versions.map((v) => v.version),
     {
       icon: config.widgetIcon,
       label: config.widgetLabel,
@@ -143,7 +150,6 @@ async function renderDeployment(
       color: config.widgetColor,
     },
   );
-  core.info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
 
   // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
   // and sessionStorage for deployed apps so repos on the same *.github.io origin
@@ -182,5 +188,5 @@ async function renderDeployment(
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}` };
+  return { context, url: `${baseUrl}${context.basePath}`, widget };
 }

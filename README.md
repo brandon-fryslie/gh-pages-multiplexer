@@ -149,6 +149,7 @@ Notes:
 - **`widget-label`** supports a single `{version}` token that's replaced with the deployed version slot at runtime (e.g. `Docs {version}` → `Docs v1.2.3`). The label is hidden in the closed state and revealed on hover.
 - **`widget-position`** is `<edge> <vertical%>` — `edge` is `right` (default) or `left`, `vertical` is a percentage `0%`–`100%` from the top of the viewport. The handle's vertical center sits on this line. Recommended range: `20%`–`80%` so the panel doesn't extend past the viewport edges when opened.
 - **`widget-color`** is the handle background. Foreground (icon + label) is white. Hover darkens via CSS `filter: brightness(0.92)` so the same color works without specifying a separate hover shade.
+- The widget inputs apply to the whole site: every deploy re-renders the widget in every version with its own inputs. Give every workflow that deploys to the same branch the same widget inputs, or each deploy restyles every version to match itself.
 
 ## Action outputs
 
@@ -291,7 +292,7 @@ Schema `1` entries (from older deployments) are still readable — the tool auto
 
 Every deployed HTML page gets a small floating button in the bottom-right corner. Clicking it opens a panel listing all deployed versions, with a "← Index" link back to the root index page.
 
-The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches `../versions.json` lazily on first open. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
+The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches `../versions.json` lazily on first open. Every deploy re-renders that tag into every version listed in `versions.json`, so pages deployed by an older release of this action pick up the current widget — and the current widget inputs — on the next deploy of any version. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
 
 To opt out: don't use this tool. There's no configuration knob to disable injection in v1 — the widget is the point.
 
@@ -309,7 +310,7 @@ concurrency:
 
 By default a GitHub concurrency group holds at most one run in progress and one pending. When another run is queued, GitHub cancels the pending one and queues the new run in its place; `cancel-in-progress: false` does not stop this, it only spares the run already in progress. With one group shared by every ref, a pull request run queued behind a `main` deploy cancels that deploy, and the merged change never ships. A group per ref limits the cancellation to runs for the same slot, where the newest run carries the latest content anyway.
 
-Runs for different slots then execute at the same time and race to push `gh-pages`, as do CLI deploys from several machines. The tool handles that race with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip. Every lost race means another deploy published, so a burst of N simultaneous deploys all land, each within N attempts. A deploy keeps rebuilding for as long as other pushes keep moving the tip, logging a warning per lost race; in Actions the job's `timeout-minutes` ends it, and a CLI deploy runs until interrupted. A rejection after which the tip has not moved is not a lost race. It means the push went somewhere other than where the tip was read (for example a `url.*.pushInsteadOf` rewrite), and the deploy fails at once, naming the tip and git's rejection. Any other git failure fails the deploy. The log line `Deployed <version> to <url> (<outcome>, N publish attempt(s))` shows whether a commit was published (`pushed`) or the branch already matched (`unchanged`), and how many attempts it took.
+Runs for different slots then execute at the same time and race to push `gh-pages`, as do CLI deploys from several machines. The tool handles that race with **optimistic concurrency**: each attempt builds the whole deploy — `versions.json`, the version directory, and every file derived from the manifest (index, sitemap, robots, health, SEO tags) — on a fresh checkout of the current `gh-pages` tip, then pushes without force. If another run pushed first, the push is rejected and the attempt starts over from the new tip. Every lost race means another deploy published, so a burst of N simultaneous deploys all land, each within N attempts. A deploy keeps rebuilding for as long as other pushes keep moving the tip, logging a warning per lost race; in Actions the job's `timeout-minutes` ends it, and a CLI deploy runs until interrupted. A rejection after which the tip has not moved is not a lost race. It means the push went somewhere other than where the tip was read (for example a `url.*.pushInsteadOf` rewrite), and the deploy fails at once, naming the tip and git's rejection. Any other git failure fails the deploy. The log line `Deployed <version> to <url> (<outcome>, N publish attempt(s); nav widget I inserted, R refreshed, C current)` shows whether a commit was published (`pushed`) or the branch already matched (`unchanged`), how many attempts it took, and how many pages across all versions got the widget for the first time, had an older widget replaced, or already carried the current one.
 
 ---
 
@@ -340,7 +341,7 @@ withWorktree            (fetch gh-pages tip, create worktree)
     ↓
 placeContent            (rsync source-dir → workdir/versionSlot/)
     ↓
-injectWidget            (walk *.html, insert script tag before </body>)
+injectWidget            (walk *.html of every version, place the current script tag before </body>)
     ↓
 renderIndexHtml         (regenerate root index.html from manifest)
     ↓

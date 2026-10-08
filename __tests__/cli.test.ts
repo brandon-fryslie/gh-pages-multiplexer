@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../src/deploy.js', () => ({
+vi.mock('../src/deploy.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/deploy.js')>()),
   deploy: vi.fn(),
 }));
 
@@ -22,7 +23,14 @@ beforeEach(() => {
     return true;
   });
   vi.mocked(deploy).mockReset();
-  vi.mocked(deploy).mockResolvedValue({ version: 'v1.0.0', url: 'https://owner.github.io/name/v1.0.0/' });
+  vi.mocked(deploy).mockResolvedValue({
+    version: 'v1.0.0',
+    url: 'https://owner.github.io/name/v1.0.0/',
+    removedVersions: [],
+    outcome: 'pushed',
+    attempts: 1,
+    widget: { inserted: 1, refreshed: 0, current: 0 },
+  });
 });
 
 afterEach(() => {
@@ -44,6 +52,21 @@ const stderr = () => stderrChunks.join('');
 const stdout = () => stdoutChunks.join('');
 
 describe('cli main()', () => {
+  it('prints one summary line carrying the publish outcome and what placing the nav widget did', async () => {
+    vi.mocked(deploy).mockResolvedValueOnce({
+      version: 'v1.0.0',
+      url: 'https://owner.github.io/name/v1.0.0/',
+      removedVersions: [],
+      outcome: 'pushed',
+      attempts: 2,
+      widget: { inserted: 3, refreshed: 40, current: 5 },
+    });
+    expect(await main(FULL_ARGV, { GITHUB_TOKEN: 'ghs_xxx' })).toBe(0);
+    expect(stdout()).toBe(
+      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current)\n',
+    );
+  });
+
   it('happy path — all flags → exit 0 and deploy called with parsed config', async () => {
     const code = await main(FULL_ARGV, { GITHUB_TOKEN: 'ghs_xxx' });
     expect(code).toBe(0);

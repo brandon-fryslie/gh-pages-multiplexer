@@ -32310,15 +32310,21 @@ function validateWidgetColor(raw) {
     return value;
 }
 
+// [LAW:one-source-of-truth] Shared data contracts for the entire deployment pipeline.
+// All pipeline stages consume and produce instances of these types.
+/** What placing the current nav widget did to one page. */
+const WIDGET_PLACEMENTS = ['inserted', 'refreshed', 'current'];
+
 // [LAW:one-source-of-truth] WIDGET_MARKER is the sole identifier for "this file already has the widget."
 //   The marker is part of the script template, so generation and detection share one constant.
+//   The template is the one source of the widget: every page's copy is re-derived from it on every deploy.
 // [LAW:single-enforcer] This module is the only place that knows the widget script template,
 //   the marker, and the html-injection rules. branch-manager.ts only calls the exported functions.
 // [LAW:dataflow-not-control-flow] injectWidgetIntoHtmlFiles always runs the same walk + per-file
 //   pipeline. Empty html list returns 0 from data (the array is empty), not from a guarded skip.
 //   The </body> / </html> / append fallback is data-driven *position* selection -- every html file
-//   gets exactly one insertion call. The idempotency gate is a data-driven content selection
-//   (already-injected => content unchanged), not a guarded skip of the operation.
+//   gets exactly one placement. A page already carrying a widget block has that block replaced,
+//   so placing the current widget twice leaves the file byte-identical.
 // [LAW:no-defensive-null-guards] fs errors propagate; no try/catch swallows. No || true.
 const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 // ---- Shadow DOM static assets (UI-SPEC Pillars 1-6) -------------------------
@@ -32761,6 +32767,18 @@ async function findHtmlFiles$3(dir) {
     }
     return results;
 }
+// A slot listed in versions.json can have no directory: git does not track empty directories, so a
+// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
+async function findSlotHtmlFiles(slotDir) {
+    try {
+        return await findHtmlFiles$3(slotDir);
+    }
+    catch (err) {
+        if (err.code === 'ENOENT' && err.path === slotDir)
+            return [];
+        throw err;
+    }
+}
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 function insertScript(html, scriptTag, filePath) {
     // [LAW:dataflow-not-control-flow] All three branches emit `original + scriptTag`.
@@ -32777,36 +32795,54 @@ function insertScript(html, scriptTag, filePath) {
     warning(`Malformed HTML in ${filePath}: no </body> or </html>; appending widget at end of file`);
     return html + scriptTag;
 }
+// Every widget block this action has ever emitted opens with WIDGET_OPEN and ends at the first
+// </script> after it: getWidgetScriptTag escapes every `</` in the values it inlines (T-04-01).
+const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
+const SCRIPT_CLOSE = '</script>';
+function emptyPlacementCounts() {
+    return { inserted: 0, refreshed: 0, current: 0 };
+}
+function addPlacementCounts(total, counts) {
+    for (const placement of WIDGET_PLACEMENTS)
+        total[placement] += counts[placement];
+}
+function placeWidget(html, scriptTag, filePath) {
+    const start = html.indexOf(WIDGET_OPEN);
+    if (start === -1)
+        return { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
+    const close = html.indexOf(SCRIPT_CLOSE, start);
+    if (close === -1)
+        throw new Error(`${filePath}: nav widget block has no closing ${SCRIPT_CLOSE}`);
+    const placed = html.slice(0, start) + scriptTag + html.slice(close + SCRIPT_CLOSE.length);
+    return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
+}
 /**
- * Walks versionDir recursively, injects the widget script tag into every *.html file.
- * Returns the count of files newly injected (already-injected files contribute 0).
+ * Walks versionDir recursively and places the current widget in every *.html file: inserted where
+ * the page has none, replacing the block where an earlier deploy left one. Files whose block is
+ * already current are not rewritten.
  *
- * Idempotent (D-12): files already containing WIDGET_MARKER are byte-identical after.
  * Non-html files are never touched (D-13).
  * Zero-html case is a no-op success with an info log (D-17).
  * fs errors propagate -- no swallowed catches (D-16).
  */
 async function injectWidgetIntoHtmlFiles(versionDir, opts) {
     const scriptTag = getWidgetScriptTag(opts);
-    const htmlFiles = await findHtmlFiles$3(versionDir);
+    const htmlFiles = await findSlotHtmlFiles(versionDir);
+    const counts = emptyPlacementCounts();
     if (htmlFiles.length === 0) {
-        // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> 0,
+        // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> zero counts,
         // not a guarded skip. The info log is the documented happy-path observable.
         info(`0 HTML files in ${versionDir}, no widget injection needed`);
-        return 0;
+        return counts;
     }
-    let count = 0;
     for (const file of htmlFiles) {
         const original = await promises.readFile(file, 'utf8');
-        const alreadyInjected = original.includes(WIDGET_MARKER);
-        // Data-driven content selection: marked -> unchanged; unmarked -> inserted.
-        const injected = alreadyInjected ? original : insertScript(original, scriptTag, file);
-        if (!alreadyInjected) {
-            await promises.writeFile(file, injected, 'utf8');
-            count++;
-        }
+        const { html, placement } = placeWidget(original, scriptTag, file);
+        if (placement !== 'current')
+            await promises.writeFile(file, html, 'utf8');
+        counts[placement]++;
     }
-    return count;
+    return counts;
 }
 
 const PR_VERSION_RE$2 = /^pr-\d+$/;
@@ -33637,17 +33673,17 @@ async function writeIndexHtml(workdir, manifest, repoMeta) {
     const listingHtml = renderIndexHtml(manifest, repoMeta);
     await promises.writeFile(path__namespace$1.join(versionsDir, 'index.html'), listingHtml, 'utf8');
 }
-async function injectWidgetForVersion(workdir, versionSlot, _repoMeta, customization) {
-    const versionDir = path__namespace$1.join(workdir, versionSlot);
-    return injectWidgetIntoHtmlFiles(versionDir, {
-        manifestUrl: '../versions.json',
-        indexUrl: '../_versions/',
-        currentVersion: versionSlot,
-        icon: customization.icon,
-        label: customization.label,
-        position: customization.position,
-        color: customization.color,
-    });
+async function injectWidgetIntoSlots(workdir, slots, customization) {
+    const total = emptyPlacementCounts();
+    for (const slot of slots) {
+        addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
+            manifestUrl: '../versions.json',
+            indexUrl: '../_versions/',
+            currentVersion: slot,
+            ...customization,
+        }));
+    }
+    return total;
 }
 // ---- SEO / health / stats writers ------------------------------------------
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
@@ -34053,11 +34089,18 @@ async function deploy(config, source) {
                 removedVersions: config.cleanupVersions,
                 outcome: published.kind,
                 attempts: attempt,
+                widget: rendered.widget,
             };
         }
         lostOn = { tip, rejection: published.rejection };
         warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
     }
+}
+// The one summary line of a deploy, printed by both the CLI and the Action.
+function deploySummary(result) {
+    const { inserted, refreshed, current } = result.widget;
+    return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+        `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -34100,18 +34143,17 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     await writeIndexHtml(workdir, cleanedManifest, { owner: repoOwner, repo: repoName });
     // Stage 4: Place content (copy + base path correction + .nojekyll).
     await placeContent(workdir, config.sourceDir, context, config.basePathMode);
-    // Stage 4.5: Inject the navigation widget into every deployed HTML page.
+    // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
     // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
-    // [LAW:single-enforcer] Goes through branch-manager.injectWidgetForVersion -- the only writer to
+    // [LAW:single-enforcer] Goes through branch-manager.injectWidgetIntoSlots -- the only writer to
     // the gh-pages worktree.
     // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
-    const injectedCount = await injectWidgetForVersion(workdir, context.versionSlot, { }, {
+    const widget = await injectWidgetIntoSlots(workdir, cleanedManifest.versions.map((v) => v.version), {
         icon: config.widgetIcon,
         label: config.widgetLabel,
         position: config.widgetPosition,
         color: config.widgetColor,
     });
-    info(`Injected nav widget into ${injectedCount} HTML file(s) in ${context.versionSlot}`);
     // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
     // and sessionStorage for deployed apps so repos on the same *.github.io origin
     // don't collide. Enabled-as-data: when config.namespaceStorage is false, this
@@ -34141,7 +34183,7 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
-    return { context, url: `${baseUrl}${context.basePath}` };
+    return { context, url: `${baseUrl}${context.basePath}`, widget };
 }
 
 // [LAW:one-type-per-behavior] CLI is a second adapter into the same deploy() pipeline used by the
@@ -34298,7 +34340,7 @@ async function main(argv, env) {
             dir: process.cwd(),
             remote: githubRemote(config.token, config.repo),
         });
-        process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s))\n`);
+        process.stdout.write(`${deploySummary(result)}\n`);
         return 0;
     }
     catch (err) {

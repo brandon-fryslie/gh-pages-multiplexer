@@ -169,7 +169,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const file = path.join(workdir, 'index.html');
     await writeFile(file, '<html><body><h1>hi</h1></body></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(1);
+    expect(n).toEqual({ inserted: 1, refreshed: 0, current: 0 });
     const content = await readFile(file, 'utf8');
     expect(content).toContain(WIDGET_MARKER);
     expect(content).toContain('<h1>hi</h1>');
@@ -187,7 +187,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     await writeFile(path.join(workdir, 'sub', 'page.html'), '<html><body>b</body></html>', 'utf8');
     await writeFile(path.join(workdir, 'sub', 'deeper', 'three.html'), '<html><body>c</body></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(3);
+    expect(n).toEqual({ inserted: 3, refreshed: 0, current: 0 });
     for (const f of ['index.html', 'sub/page.html', 'sub/deeper/three.html']) {
       const c = await readFile(path.join(workdir, f), 'utf8');
       expect(c).toContain(WIDGET_MARKER);
@@ -198,10 +198,10 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const file = path.join(workdir, 'index.html');
     await writeFile(file, '<html><body>x</body></html>', 'utf8');
     const n1 = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n1).toBe(1);
+    expect(n1).toEqual({ inserted: 1, refreshed: 0, current: 0 });
     const after1 = await readFile(file, 'utf8');
     const n2 = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n2).toBe(0);
+    expect(n2).toEqual({ inserted: 0, refreshed: 0, current: 1 });
     const after2 = await readFile(file, 'utf8');
     expect(after2).toBe(after1);
     const matches = after2.match(/gh-pages-multiplexer:nav-widget/g) || [];
@@ -233,7 +233,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const file = path.join(workdir, 'Page.HTML');
     await writeFile(file, '<html><body>x</body></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(1);
+    expect(n).toEqual({ inserted: 1, refreshed: 0, current: 0 });
     expect(await readFile(file, 'utf8')).toContain(WIDGET_MARKER);
   });
 
@@ -242,7 +242,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const file = path.join(workdir, 'index.html');
     await writeFile(file, '<html><h1>no body close</h1></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(1);
+    expect(n).toEqual({ inserted: 1, refreshed: 0, current: 0 });
     const content = await readFile(file, 'utf8');
     expect(content).toContain(WIDGET_MARKER);
     expect(content).toMatch(/<\/script>\s*<\/html>/);
@@ -254,7 +254,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const file = path.join(workdir, 'frag.html');
     await writeFile(file, '<h1>fragment</h1>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(1);
+    expect(n).toEqual({ inserted: 1, refreshed: 0, current: 0 });
     const content = await readFile(file, 'utf8');
     expect(content).toContain(WIDGET_MARKER);
     expect(warnMock).toHaveBeenCalled();
@@ -267,15 +267,20 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     await writeFile(path.join(workdir, 'style.css'), 'body{}', 'utf8');
     await writeFile(path.join(workdir, 'data.json'), '{}', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(0);
+    expect(n).toEqual({ inserted: 0, refreshed: 0, current: 0 });
     const calls = infoMock.mock.calls.map((c) => String(c[0])).join('\n');
     expect(/0 HTML|no widget injection/i.test(calls)).toBe(true);
   });
 
+  it('Test 17b: a slot with no directory has zero pages', async () => {
+    const n = await injectWidgetIntoHtmlFiles(path.join(workdir, 'never-committed'), opts);
+    expect(n).toEqual({ inserted: 0, refreshed: 0, current: 0 });
+  });
+
   it('Test 18: errors propagate (D-16)', async () => {
-    await expect(
-      injectWidgetIntoHtmlFiles(path.join(workdir, 'does-not-exist'), opts),
-    ).rejects.toThrow();
+    const notADir = path.join(workdir, 'slot');
+    await writeFile(notADir, 'x', 'utf8');
+    await expect(injectWidgetIntoHtmlFiles(notADir, opts)).rejects.toThrow(/ENOTDIR/);
   });
 
   it('Test 19: preserves rest of HTML', async () => {
@@ -294,16 +299,31 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     }
   });
 
-  it('Test 20: mixed states - already-injected file untouched, fresh file injected', async () => {
-    const a = path.join(workdir, 'a.html');
-    const b = path.join(workdir, 'b.html');
-    const aContent = `<html><body>a${WIDGET_MARKER}</body></html>`;
-    await writeFile(a, aContent, 'utf8');
-    await writeFile(b, '<html><body>b</body></html>', 'utf8');
+  it('Test 20: a page carrying an earlier widget gets the current one in its place', async () => {
+    const stale = path.join(workdir, 'stale.html');
+    const fresh = path.join(workdir, 'fresh.html');
+    // The shape every earlier template emitted: the marker opens the script, the first </script> ends it.
+    const staleBlock = `<script>${WIDGET_MARKER}\n(function(){ var OLD = '<\\/div>'; })();\n</script>`;
+    await writeFile(stale, `<html><body><p>keep</p>${staleBlock}<footer>also</footer></body></html>`, 'utf8');
+    await writeFile(fresh, '<html><body>b</body></html>', 'utf8');
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
-    expect(n).toBe(1);
-    expect(await readFile(a, 'utf8')).toBe(aContent);
-    expect(await readFile(b, 'utf8')).toContain(WIDGET_MARKER);
+    expect(n).toEqual({ inserted: 1, refreshed: 1, current: 0 });
+    expect(await readFile(stale, 'utf8')).toBe(
+      `<html><body><p>keep</p>${getWidgetScriptTag(opts)}<footer>also</footer></body></html>`,
+    );
+    expect(await readFile(fresh, 'utf8')).toContain(WIDGET_MARKER);
+  });
+
+  it('Test 20b: the rendered widget closes its script exactly once, at its end', () => {
+    // Refreshing relies on this: a block ends at the first </script> after its marker.
+    const hostile = { ...opts, currentVersion: '</script><b>x', label: '</script>', icon: '<svg></svg>' };
+    const tag = getWidgetScriptTag(hostile);
+    expect(tag.indexOf('</script>')).toBe(tag.length - '</script>'.length);
+  });
+
+  it('Test 20c: a widget block with no closing tag fails loudly', async () => {
+    await writeFile(path.join(workdir, 'cut.html'), `<html><body><script>${WIDGET_MARKER} var x;`, 'utf8');
+    await expect(injectWidgetIntoHtmlFiles(workdir, opts)).rejects.toThrow(/cut\.html.*no closing <\/script>/);
   });
 });
 
