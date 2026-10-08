@@ -38896,14 +38896,14 @@ function readStorageWrapperNamespace(block, filePath) {
 //   the wrapper: a page carrying a wrapper block has it re-rendered from the current template on
 //   every deploy, and only the slot a deploy opts in gains blocks where its pages have none.
 // [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
-const HEAD_START_TAG = /<head(?=[\s>])[^>]*>/i;
-// A page may omit <head>: the parser then opens the head itself right after the doctype and <html>
-// start tag. Every part is optional, so this matches every document, if only as the empty prefix.
-const PROLOGUE = /^(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<html(?=[\s>])[^>]*>)?/i;
+// The head's first child goes right after the page's prologue: the doctype, <html> and <head> start
+// tags, and the whitespace and comments between them. Only those can come before the head, so a
+// `<head` anywhere later is text, not the tag. A page may omit any of them (the parser then opens
+// the head itself), so every part is optional and this matches every document, if only as "".
+const HEAD_START = /^(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<html(?=[\s>])[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<head(?=[\s>])[^>]*>)?/i;
 /** Insert tag as the head's first child, so it runs before any script the page carries. */
 function insertAtHeadStart(html, tag) {
-    const start = HEAD_START_TAG.exec(html) ?? PROLOGUE.exec(html);
-    const end = start.index + start[0].length;
+    const end = HEAD_START.exec(html)[0].length;
     return html.slice(0, end) + tag + html.slice(end);
 }
 const STORAGE_WRAPPER_OPEN = `${STORAGE_WRAPPER_MARKER}<script>`;

@@ -74,6 +74,7 @@ describe('placeStorageWrapperInSlot', () => {
     ],
     ['<!-- built --> <!DOCTYPE html>\n<html lang="en"><p>x', `<!-- built --> <!DOCTYPE html>\n<html lang="en">${tag}<p>x`],
     ['<p>bare', `${tag}<p>bare`],
+    ['<!-- <head> --><html><body><script>x="<head>"</script>', `<!-- <head> --><html>${tag}<body><script>x="<head>"</script>`],
   ])('a page that omits <head> gets the wrapper after its doctype and <html> start tag: %s', async (html, expected) => {
     await writeFile(path.join(dir, 'index.html'), html);
     await placeStorageWrapperInSlot(dir, opts, 'every-page');
