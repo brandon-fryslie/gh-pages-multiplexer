@@ -24,6 +24,7 @@ beforeEach(() => {
   });
   vi.mocked(deploy).mockReset();
   vi.mocked(deploy).mockResolvedValue({
+    ref: 'refs/tags/v1.0.0',
     version: 'v1.0.0',
     url: 'https://owner.github.io/name/v1.0.0/',
     removedVersions: [],
@@ -57,6 +58,7 @@ const stdout = () => stdoutChunks.join('');
 describe('cli main()', () => {
   it('prints one summary line carrying the publish outcome, what placing the nav widget and storage wrapper did, and what the sitemap lists', async () => {
     vi.mocked(deploy).mockResolvedValueOnce({
+      ref: 'refs/tags/v1.0.0',
       version: 'v1.0.0',
       url: 'https://owner.github.io/name/v1.0.0/',
       removedVersions: [],
@@ -69,7 +71,7 @@ describe('cli main()', () => {
     });
     expect(await main(FULL_ARGV, { GITHUB_TOKEN: 'ghs_xxx' })).toBe(0);
     expect(stdout()).toBe(
-      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s): 9 from v1.0.0, 3 from older versions; renamed 0 slot(s))\n',
+      'Deployed refs/tags/v1.0.0 as v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s): 9 from v1.0.0, 3 from older versions; renamed 0 slot(s))\n',
     );
   });
 

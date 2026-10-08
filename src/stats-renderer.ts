@@ -75,7 +75,7 @@ const STATS_SCRIPT = `
     }
   }
   fetch('../${ROOT_ENTRIES.manifest}', { cache: 'no-store' }).then(function(r){
-    if (!r.ok) throw new Error('versions.json fetch failed: ' + r.status);
+    if (!r.ok) throw new Error('${ROOT_ENTRIES.manifest} fetch failed: ' + r.status);
     return r.json();
   }).then(function(manifest){
     var versions = (manifest && manifest.versions) || [];

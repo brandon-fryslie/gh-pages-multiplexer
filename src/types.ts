@@ -122,6 +122,7 @@ export interface RenamedSlot extends SlotRename {
 
 /** Result returned from the deploy pipeline */
 export interface DeployResult {
+  ref: string;  // the git ref deployed; with `version` it shows how the ref was named
   version: string;
   url: string;
   removedVersions: string[];  // version slots removed during cleanup
