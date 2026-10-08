@@ -34,7 +34,7 @@ beforeEach(async () => {
   await run('git', ['init', '--quiet', src]);
   await writeFile(path.join(src, 'README'), 'source\n');
   await git(src, 'add', '.');
-  await git(src, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'init');
+  await git(src, 'commit', '--quiet', '-m', 'init');
   clone = path.join(root, 'clone');
   await run('git', ['clone', '--quiet', src, clone]);
   await git(clone, 'config', 'user.name', 'Repo Owner');
@@ -158,7 +158,7 @@ describe('cli deploy against a real remote', () => {
     const manifestFile = path.join(pages, 'versions.json');
     await writeFile(manifestFile, (await readFile(manifestFile, 'utf8')).replace('"version": "v1-rc"', '"version": "v1#rc"'));
     await git(pages, 'add', '-A');
-    await git(pages, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--quiet', '-m', 'legacy slot');
+    await git(pages, 'commit', '--quiet', '-m', 'legacy slot');
     await git(pages, 'push', '--quiet', 'origin', 'gh-pages');
 
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);

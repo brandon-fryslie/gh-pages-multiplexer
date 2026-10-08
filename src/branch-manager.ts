@@ -10,7 +10,6 @@
 // [LAW:no-silent-failure] Every git invocation either succeeds or throws. The only non-zero exits
 //   that are not errors are the ones a command defines as an answer (ls-remote --exit-code, a
 //   stale-tip push rejection), and each is mapped to a named outcome below.
-import * as exec from '@actions/exec';
 import * as core from '@actions/core';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -29,6 +28,7 @@ import { renderStatsHtml } from './stats-renderer.js';
 import { injectCanonicalTags, injectNoindexIntoDir } from './seo-injector.js';
 import { placeStorageWrapperInSlot } from './storage-wrapper-injector.js';
 import { autoNamespace } from './storage-wrapper.js';
+import { runSubprocess, type SubprocessOutput } from './subprocess.js';
 
 // GIT_AUTHOR_*/GIT_COMMITTER_* outrank any user.name/user.email config, so a deploy commit's identity
 // is this one even in a clone whose owner exports their own.
@@ -60,7 +60,7 @@ export function githubRemote(token: string, repo: string): Remote {
   };
 }
 
-function gitFailure(args: string[], out: exec.ExecOutput): Error {
+function gitFailure(args: string[], out: SubprocessOutput): Error {
   return new Error(`git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
 }
 
@@ -70,20 +70,17 @@ interface GitRun {
 }
 
 /**
- * The one way git is run. Silent, so a command line is never echoed to stdout; never prompts, since a
- * prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
+ * The one way git is run. Its stdin is the null device (see runSubprocess) and it never prompts,
+ * since a prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
  * its children, unlike `-c` arguments, which any local user can read in the process table.
  */
-function runGit(cwd: string, args: string[], { config = [], env = {} }: GitRun = {}): Promise<exec.ExecOutput> {
+function runGit(cwd: string, args: string[], { config = [], env = {} }: GitRun = {}): Promise<SubprocessOutput> {
   const inherited = Number(process.env.GIT_CONFIG_COUNT ?? 0);
   const configEnv = Object.fromEntries(
     config.flatMap(([key, value], i) => [[`GIT_CONFIG_KEY_${inherited + i}`, key], [`GIT_CONFIG_VALUE_${inherited + i}`, value]]),
   );
-  return exec.getExecOutput('git', args, {
+  return runSubprocess('git', args, {
     cwd,
-    ignoreReturnCode: true,
-    silent: true,
-    input: Buffer.alloc(0), // stdin closed: mktree reads its (empty) tree from it
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...configEnv, GIT_CONFIG_COUNT: String(inherited + config.length), ...env },
   });
 }
