@@ -32554,14 +32554,16 @@ const SHADOW_HTML = `
 </div>
 `;
 /**
- * Pure: returns the full <script>...</script> HTML string with values inlined.
+ * Pure: returns the full <script>...</script> HTML string for one page, with values inlined.
+ * siteRoot is the relative URL from that page to the site root ("../" for a slot's top-level
+ * page, "../../" one directory down).
  *
  * Security: opts fields are passed through JSON.stringify to neutralize any
  * `</script>` or quote-character breakout attempts (T-04-01).
  *
  * Structure: IIFE-wrapped, no globals (UI-SPEC verification gate, T-04-08).
  */
-function getWidgetScriptTag(opts) {
+function getWidgetScriptTag(opts, siteRoot) {
     // [LAW:single-enforcer] JSON.stringify is the sole escape mechanism.
     // JSON.stringify escapes quotes/backslashes but NOT `</`. We additionally
     // replace `</` with `<\/` so an attacker-controlled value containing
@@ -32575,8 +32577,9 @@ function getWidgetScriptTag(opts) {
     const labelResolved = opts.label || DEFAULT_WIDGET_LABEL;
     const positionResolved = opts.position || DEFAULT_WIDGET_POSITION;
     const colorResolved = opts.color || DEFAULT_WIDGET_COLOR;
-    const M = safe(opts.manifestUrl);
-    const I = safe(opts.indexUrl);
+    const R = safe(siteRoot);
+    const M = safe(opts.manifestPath);
+    const I = safe(opts.indexPath);
     const C = safe(opts.currentVersion);
     const ICON = safe(iconResolved);
     const LABEL = safe(labelResolved);
@@ -32586,8 +32589,12 @@ function getWidgetScriptTag(opts) {
     const HTML = safe(SHADOW_HTML);
     return `<script>${WIDGET_MARKER}
 (function(){
-  var MANIFEST_URL = ${M};
-  var INDEX_URL = ${I};
+  // The multiplexed site this page belongs to, resolved once against the URL the page was served
+  // at, so a client-side router that later rewrites location does not move it.
+  var SITE_ROOT = new URL(${R}, location.href);
+  var SITE = SITE_ROOT.pathname;
+  var MANIFEST_URL = new URL(${M}, SITE_ROOT).href;
+  var INDEX_URL = new URL(${I}, SITE_ROOT).href;
   var CURRENT = ${C};
   var ICON_SVG = ${ICON};
   var LABEL_TEMPLATE = ${LABEL};
@@ -32595,8 +32602,6 @@ function getWidgetScriptTag(opts) {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
-  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
-  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
@@ -32703,7 +32708,7 @@ function getWidgetScriptTag(opts) {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="../' + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + new URL(encodeURIComponent(name) + '/', SITE_ROOT).href + '"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }
@@ -32779,6 +32784,10 @@ async function findSlotHtmlFiles(slotDir) {
         throw err;
     }
 }
+// The site root as a URL relative to the page at file: one "../" per directory between them.
+function siteRootFrom(file, siteDir) {
+    return path__namespace$1.relative(path__namespace$1.dirname(file), siteDir).split(path__namespace$1.sep).join('/') + '/';
+}
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 function insertScript(html, scriptTag, filePath) {
     // [LAW:dataflow-not-control-flow] All three branches emit `original + scriptTag`.
@@ -32817,7 +32826,8 @@ function placeWidget(html, scriptTag, filePath) {
     return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
 }
 /**
- * Walks versionDir recursively and places the current widget in every *.html file: inserted where
+ * Walks versionDir (a slot directly under the site root) recursively and places the current widget
+ * in every *.html file, its site links relative to that file's depth: inserted where
  * the page has none, replacing the block where an earlier deploy left one. Files whose block is
  * already current are not rewritten.
  *
@@ -32826,7 +32836,6 @@ function placeWidget(html, scriptTag, filePath) {
  * fs errors propagate -- no swallowed catches (D-16).
  */
 async function injectWidgetIntoHtmlFiles(versionDir, opts) {
-    const scriptTag = getWidgetScriptTag(opts);
     const htmlFiles = await findSlotHtmlFiles(versionDir);
     const counts = emptyPlacementCounts();
     if (htmlFiles.length === 0) {
@@ -32835,9 +32844,10 @@ async function injectWidgetIntoHtmlFiles(versionDir, opts) {
         info(`0 HTML files in ${versionDir}, no widget injection needed`);
         return counts;
     }
+    const siteDir = path__namespace$1.dirname(versionDir);
     for (const file of htmlFiles) {
         const original = await promises.readFile(file, 'utf8');
-        const { html, placement } = placeWidget(original, scriptTag, file);
+        const { html, placement } = placeWidget(original, getWidgetScriptTag(opts, siteRootFrom(file, siteDir)), file);
         if (placement !== 'current')
             await promises.writeFile(file, html, 'utf8');
         counts[placement]++;
@@ -33677,8 +33687,8 @@ async function injectWidgetIntoSlots(workdir, slots, customization) {
     const total = emptyPlacementCounts();
     for (const slot of slots) {
         addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
-            manifestUrl: '../versions.json',
-            indexUrl: '../_versions/',
+            manifestPath: 'versions.json',
+            indexPath: '_versions/',
             currentVersion: slot,
             ...customization,
         }));

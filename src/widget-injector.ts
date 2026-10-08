@@ -24,10 +24,10 @@ import { WIDGET_PLACEMENTS, type WidgetPlacement, type WidgetPlacementCounts } f
 export const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 
 export interface WidgetInjectionOpts {
-  /** Relative URL from a deployed page back to the root versions.json (e.g. "../versions.json"). */
-  manifestUrl: string;
-  /** Relative URL from a deployed page back to the root index (e.g. "../"). */
-  indexUrl: string;
+  /** The manifest's path relative to the site root (e.g. "versions.json"). */
+  manifestPath: string;
+  /** The version index's path relative to the site root (e.g. "_versions/"). */
+  indexPath: string;
   /** The current version slot name; the widget bolds this row and disables click. */
   currentVersion: string;
   /** Custom SVG markup for the handle icon. Empty = built-in layers icon. */
@@ -270,14 +270,16 @@ const SHADOW_HTML = `
 `;
 
 /**
- * Pure: returns the full <script>...</script> HTML string with values inlined.
+ * Pure: returns the full <script>...</script> HTML string for one page, with values inlined.
+ * siteRoot is the relative URL from that page to the site root ("../" for a slot's top-level
+ * page, "../../" one directory down).
  *
  * Security: opts fields are passed through JSON.stringify to neutralize any
  * `</script>` or quote-character breakout attempts (T-04-01).
  *
  * Structure: IIFE-wrapped, no globals (UI-SPEC verification gate, T-04-08).
  */
-export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
+export function getWidgetScriptTag(opts: WidgetInjectionOpts, siteRoot: string): string {
   // [LAW:single-enforcer] JSON.stringify is the sole escape mechanism.
   // JSON.stringify escapes quotes/backslashes but NOT `</`. We additionally
   // replace `</` with `<\/` so an attacker-controlled value containing
@@ -293,8 +295,9 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
   const positionResolved = opts.position || DEFAULT_WIDGET_POSITION;
   const colorResolved = opts.color || DEFAULT_WIDGET_COLOR;
 
-  const M = safe(opts.manifestUrl);
-  const I = safe(opts.indexUrl);
+  const R = safe(siteRoot);
+  const M = safe(opts.manifestPath);
+  const I = safe(opts.indexPath);
   const C = safe(opts.currentVersion);
   const ICON = safe(iconResolved);
   const LABEL = safe(labelResolved);
@@ -305,8 +308,12 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
 
   return `<script>${WIDGET_MARKER}
 (function(){
-  var MANIFEST_URL = ${M};
-  var INDEX_URL = ${I};
+  // The multiplexed site this page belongs to, resolved once against the URL the page was served
+  // at, so a client-side router that later rewrites location does not move it.
+  var SITE_ROOT = new URL(${R}, location.href);
+  var SITE = SITE_ROOT.pathname;
+  var MANIFEST_URL = new URL(${M}, SITE_ROOT).href;
+  var INDEX_URL = new URL(${I}, SITE_ROOT).href;
   var CURRENT = ${C};
   var ICON_SVG = ${ICON};
   var LABEL_TEMPLATE = ${LABEL};
@@ -314,8 +321,6 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
-  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
-  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
@@ -422,7 +427,7 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
           if (isCurrent) {
             html += '<div class="row current"><span class="ver">' + safeName + '</span><span class="badge">current</span><div class="ref">' + safeRef + '</div></div>';
           } else {
-            html += '<a class="row" href="../' + encodeURIComponent(name) + '/"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
+            html += '<a class="row" href="' + new URL(encodeURIComponent(name) + '/', SITE_ROOT).href + '"><span class="ver">' + safeName + '</span><div class="ref">' + safeRef + '</div></a>';
           }
         }
         if (!html) { html = '<div class="state">No versions</div>'; }
@@ -499,6 +504,11 @@ async function findSlotHtmlFiles(slotDir: string): Promise<string[]> {
   }
 }
 
+// The site root as a URL relative to the page at file: one "../" per directory between them.
+function siteRootFrom(file: string, siteDir: string): string {
+  return path.relative(path.dirname(file), siteDir).split(path.sep).join('/') + '/';
+}
+
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 
 function insertScript(html: string, scriptTag: string, filePath: string): string {
@@ -542,7 +552,8 @@ function placeWidget(html: string, scriptTag: string, filePath: string): { html:
 }
 
 /**
- * Walks versionDir recursively and places the current widget in every *.html file: inserted where
+ * Walks versionDir (a slot directly under the site root) recursively and places the current widget
+ * in every *.html file, its site links relative to that file's depth: inserted where
  * the page has none, replacing the block where an earlier deploy left one. Files whose block is
  * already current are not rewritten.
  *
@@ -554,7 +565,6 @@ export async function injectWidgetIntoHtmlFiles(
   versionDir: string,
   opts: WidgetInjectionOpts,
 ): Promise<WidgetPlacementCounts> {
-  const scriptTag = getWidgetScriptTag(opts);
   const htmlFiles = await findSlotHtmlFiles(versionDir);
   const counts = emptyPlacementCounts();
 
@@ -565,9 +575,10 @@ export async function injectWidgetIntoHtmlFiles(
     return counts;
   }
 
+  const siteDir = path.dirname(versionDir);
   for (const file of htmlFiles) {
     const original = await readFile(file, 'utf8');
-    const { html, placement } = placeWidget(original, scriptTag, file);
+    const { html, placement } = placeWidget(original, getWidgetScriptTag(opts, siteRootFrom(file, siteDir)), file);
     if (placement !== 'current') await writeFile(file, html, 'utf8');
     counts[placement]++;
   }

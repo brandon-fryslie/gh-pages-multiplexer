@@ -192,12 +192,9 @@ describe('widget injection in deploy pipeline', () => {
 
     const root = await fsReadFile(path.join(workdir, versionSlot, 'index.html'), 'utf8');
     const about = await fsReadFile(path.join(workdir, versionSlot, 'about/index.html'), 'utf8');
-    expect(root).toContain(WIDGET_MARKER);
-    expect(about).toContain(WIDGET_MARKER);
-    expect(root).toContain(`"${versionSlot}"`);
-    expect(about).toContain(`"${versionSlot}"`);
-    expect(root).toContain('"../versions.json"');
-    expect(about).toContain('"../versions.json"');
+    const slotWidget = { manifestPath: 'versions.json', indexPath: '_versions/', currentVersion: versionSlot, ...noCustomization };
+    expect(root).toContain(getWidgetScriptTag(slotWidget, '../'));
+    expect(about).toContain(getWidgetScriptTag(slotWidget, '../../'));
 
     const css = await fsReadFile(path.join(workdir, versionSlot, 'assets/style.css'));
     const js = await fsReadFile(path.join(workdir, versionSlot, 'assets/app.js'));
@@ -231,11 +228,11 @@ describe('widget injection in deploy pipeline', () => {
 
     expect(placed).toEqual({ inserted: 1, refreshed: 1, current: 0 });
     const currentWidget = getWidgetScriptTag({
-      manifestUrl: '../versions.json',
-      indexUrl: '../_versions/',
+      manifestPath: 'versions.json',
+      indexPath: '_versions/',
       currentVersion: older,
       ...noCustomization,
-    });
+    }, '../');
     expect(await fsReadFile(path.join(workdir, older, 'index.html'), 'utf8')).toBe(olderPage(currentWidget));
     expect(await fsReadFile(path.join(stray, 'index.html'), 'utf8')).toBe(strayHtml);
   });
