@@ -16,9 +16,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, Remote, SourceRepo, WidgetPlacement, WidgetPlacementCounts } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, Remote, SourceRepo, WidgetPlacementCounts } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
-import { injectWidgetIntoHtmlFiles, emptyPlacementCounts } from './widget-injector.js';
+import { injectWidgetIntoHtmlFiles, emptyPlacementCounts, addPlacementCounts } from './widget-injector.js';
 import { renderRobotsTxt } from './robots-generator.js';
 import {
   findHtmlFilesRelative,
@@ -296,13 +296,12 @@ export async function injectWidgetIntoSlots(
 ): Promise<WidgetPlacementCounts> {
   const total = emptyPlacementCounts();
   for (const slot of slots) {
-    const counts = await injectWidgetIntoHtmlFiles(path.join(workdir, slot), {
+    addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path.join(workdir, slot), {
       manifestUrl: '../versions.json',
       indexUrl: '../_versions/',
       currentVersion: slot,
       ...customization,
-    });
-    for (const placement of Object.keys(total) as WidgetPlacement[]) total[placement] += counts[placement];
+    }));
   }
   return total;
 }

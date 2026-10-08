@@ -2,7 +2,8 @@
 // All pipeline stages consume and produce instances of these types.
 
 /** What placing the current nav widget did to one page. */
-export type WidgetPlacement = 'inserted' | 'refreshed' | 'current';
+export const WIDGET_PLACEMENTS = ['inserted', 'refreshed', 'current'] as const;
+export type WidgetPlacement = (typeof WIDGET_PLACEMENTS)[number];
 export type WidgetPlacementCounts = Record<WidgetPlacement, number>;
 
 /** Configuration parsed from action inputs */

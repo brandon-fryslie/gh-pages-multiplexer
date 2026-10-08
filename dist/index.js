@@ -37770,6 +37770,11 @@ function validateWidgetColor(raw) {
     return value;
 }
 
+// [LAW:one-source-of-truth] Shared data contracts for the entire deployment pipeline.
+// All pipeline stages consume and produce instances of these types.
+/** What placing the current nav widget did to one page. */
+const WIDGET_PLACEMENTS = ['inserted', 'refreshed', 'current'];
+
 // [LAW:one-source-of-truth] WIDGET_MARKER is the sole identifier for "this file already has the widget."
 //   The marker is part of the script template, so generation and detection share one constant.
 //   The template is the one source of the widget: every page's copy is re-derived from it on every deploy.
@@ -38222,6 +38227,18 @@ async function findHtmlFiles$3(dir) {
     }
     return results;
 }
+// A slot listed in versions.json can have no directory: git does not track empty directories, so a
+// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
+async function findSlotHtmlFiles(slotDir) {
+    try {
+        return await findHtmlFiles$3(slotDir);
+    }
+    catch (err) {
+        if (err.code === 'ENOENT' && err.path === slotDir)
+            return [];
+        throw err;
+    }
+}
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 function insertScript(html, scriptTag, filePath) {
     // [LAW:dataflow-not-control-flow] All three branches emit `original + scriptTag`.
@@ -38245,6 +38262,10 @@ const SCRIPT_CLOSE = '</script>';
 function emptyPlacementCounts() {
     return { inserted: 0, refreshed: 0, current: 0 };
 }
+function addPlacementCounts(total, counts) {
+    for (const placement of WIDGET_PLACEMENTS)
+        total[placement] += counts[placement];
+}
 function placeWidget(html, scriptTag, filePath) {
     const start = html.indexOf(WIDGET_OPEN);
     if (start === -1)
@@ -38266,7 +38287,7 @@ function placeWidget(html, scriptTag, filePath) {
  */
 async function injectWidgetIntoHtmlFiles(versionDir, opts) {
     const scriptTag = getWidgetScriptTag(opts);
-    const htmlFiles = await findHtmlFiles$3(versionDir);
+    const htmlFiles = await findSlotHtmlFiles(versionDir);
     const counts = emptyPlacementCounts();
     if (htmlFiles.length === 0) {
         // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> zero counts,
@@ -39115,14 +39136,12 @@ async function writeIndexHtml(workdir, manifest, repoMeta) {
 async function injectWidgetIntoSlots(workdir, slots, customization) {
     const total = emptyPlacementCounts();
     for (const slot of slots) {
-        const counts = await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
+        addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path__namespace$1.join(workdir, slot), {
             manifestUrl: '../versions.json',
             indexUrl: '../_versions/',
             currentVersion: slot,
             ...customization,
-        });
-        for (const placement of Object.keys(total))
-            total[placement] += counts[placement];
+        }));
     }
     return total;
 }
@@ -39537,6 +39556,12 @@ async function deploy(config, source) {
         warning(`${config.targetBranch} moved during attempt ${attempt}; rebuilding from the new tip`);
     }
 }
+// The one summary line of a deploy, printed by both the CLI and the Action.
+function deploySummary(result) {
+    const { inserted, refreshed, current } = result.widget;
+    return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+        `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
+}
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
  * and every file derived from that manifest. Reads and writes nothing outside `workdir` except
@@ -39938,7 +39963,7 @@ async function run() {
     });
     setOutput('version', result.version);
     setOutput('url', result.url);
-    info(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); nav widget ${result.widget.inserted} inserted, ${result.widget.refreshed} refreshed, ${result.widget.current} current)`);
+    info(deploySummary(result));
     if (result.removedVersions.length > 0) {
         info(`Cleaned up ${result.removedVersions.length} stale PR version(s): ${result.removedVersions.join(', ')}`);
     }

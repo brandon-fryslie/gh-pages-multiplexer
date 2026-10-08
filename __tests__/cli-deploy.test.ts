@@ -83,7 +83,11 @@ describe('cli deploy against a real remote', () => {
     await writeFile(path.join(site, 'index.html'), '<html><head></head><body>v1 again</body></html>');
     expect(await main(argv, { GITHUB_TOKEN: TOKEN })).toBe(0);
 
-    expect(output.join('')).toContain('Deployed v1.0.0');
+    // The second deploy re-places v1.0.0's content, so its one page gets the widget inserted again.
+    expect(output.filter((line) => line.startsWith('Deployed v1.0.0'))).toEqual([
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current)\n',
+    ]);
     expect(output.filter((line) => line.includes(TOKEN))).toEqual([]);
     expect(await readFile(path.join(clone, '.git', 'config'))).toEqual(configBefore);
     expect(await git(clone, 'for-each-ref')).toBe(refsBefore);

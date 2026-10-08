@@ -76,6 +76,13 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
   }
 }
 
+// The one summary line of a deploy, printed by both the CLI and the Action.
+export function deploySummary(result: DeployResult): string {
+  const { inserted, refreshed, current } = result.widget;
+  return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
+    `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
+}
+
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
  * and every file derived from that manifest. Reads and writes nothing outside `workdir` except

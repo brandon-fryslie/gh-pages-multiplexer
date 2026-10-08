@@ -279,4 +279,16 @@ describe('widget injection in deploy pipeline', () => {
     expect(data).not.toContain(WIDGET_MARKER);
     expect(svg).not.toContain(WIDGET_MARKER);
   });
+
+  it('Test 7: a manifest slot with no directory on the branch does not stop the other slots', async () => {
+    await writeSource('index.html', '<!doctype html><html><head></head><body>1</body></html>');
+    const withEmptySlot: Manifest = {
+      schema: 2,
+      versions: [
+        ...manifest.versions,
+        { version: 'v0.9.0', ref: 'refs/tags/v0.9.0', sha: 'def456', timestamp: '2026-04-05T00:00:00Z', commits: [] },
+      ],
+    };
+    expect(await runPipelineStages(withEmptySlot)).toEqual({ inserted: 1, refreshed: 0, current: 0 });
+  });
 });

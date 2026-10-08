@@ -272,10 +272,15 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     expect(/0 HTML|no widget injection/i.test(calls)).toBe(true);
   });
 
+  it('Test 17b: a slot with no directory has zero pages', async () => {
+    const n = await injectWidgetIntoHtmlFiles(path.join(workdir, 'never-committed'), opts);
+    expect(n).toEqual({ inserted: 0, refreshed: 0, current: 0 });
+  });
+
   it('Test 18: errors propagate (D-16)', async () => {
-    await expect(
-      injectWidgetIntoHtmlFiles(path.join(workdir, 'does-not-exist'), opts),
-    ).rejects.toThrow();
+    const notADir = path.join(workdir, 'slot');
+    await writeFile(notADir, 'x', 'utf8');
+    await expect(injectWidgetIntoHtmlFiles(notADir, opts)).rejects.toThrow(/ENOTDIR/);
   });
 
   it('Test 19: preserves rest of HTML', async () => {

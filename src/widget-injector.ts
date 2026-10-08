@@ -19,7 +19,7 @@ import {
   DEFAULT_WIDGET_POSITION,
   DEFAULT_WIDGET_COLOR,
 } from './widget-config.js';
-import type { WidgetPlacement, WidgetPlacementCounts } from './types.js';
+import { WIDGET_PLACEMENTS, type WidgetPlacement, type WidgetPlacementCounts } from './types.js';
 
 export const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 
@@ -488,6 +488,17 @@ async function findHtmlFiles(dir: string): Promise<string[]> {
   return results;
 }
 
+// A slot listed in versions.json can have no directory: git does not track empty directories, so a
+// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
+async function findSlotHtmlFiles(slotDir: string): Promise<string[]> {
+  try {
+    return await findHtmlFiles(slotDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT' && (err as NodeJS.ErrnoException).path === slotDir) return [];
+    throw err;
+  }
+}
+
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 
 function insertScript(html: string, scriptTag: string, filePath: string): string {
@@ -517,6 +528,10 @@ export function emptyPlacementCounts(): WidgetPlacementCounts {
   return { inserted: 0, refreshed: 0, current: 0 };
 }
 
+export function addPlacementCounts(total: WidgetPlacementCounts, counts: WidgetPlacementCounts): void {
+  for (const placement of WIDGET_PLACEMENTS) total[placement] += counts[placement];
+}
+
 function placeWidget(html: string, scriptTag: string, filePath: string): { html: string; placement: WidgetPlacement } {
   const start = html.indexOf(WIDGET_OPEN);
   if (start === -1) return { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
@@ -540,7 +555,7 @@ export async function injectWidgetIntoHtmlFiles(
   opts: WidgetInjectionOpts,
 ): Promise<WidgetPlacementCounts> {
   const scriptTag = getWidgetScriptTag(opts);
-  const htmlFiles = await findHtmlFiles(versionDir);
+  const htmlFiles = await findSlotHtmlFiles(versionDir);
   const counts = emptyPlacementCounts();
 
   if (htmlFiles.length === 0) {

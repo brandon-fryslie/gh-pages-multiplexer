@@ -10,7 +10,7 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 import type { DeployConfig } from './types.js';
-import { deploy } from './deploy.js';
+import { deploy, deploySummary } from './deploy.js';
 import { githubRemote } from './branch-manager.js';
 import { upsertPreviewComment } from './pr-commenter.js';
 import { resolveCleanupVersions } from './pr-cleanup.js';
@@ -105,7 +105,7 @@ async function run(): Promise<void> {
 
   core.setOutput('version', result.version);
   core.setOutput('url', result.url);
-  core.info(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); nav widget ${result.widget.inserted} inserted, ${result.widget.refreshed} refreshed, ${result.widget.current} current)`);
+  core.info(deploySummary(result));
   if (result.removedVersions.length > 0) {
     core.info(`Cleaned up ${result.removedVersions.length} stale PR version(s): ${result.removedVersions.join(', ')}`);
   }
