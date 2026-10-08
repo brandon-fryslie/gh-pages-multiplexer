@@ -66,6 +66,7 @@ export interface SourceRepo {
 /** Context derived from the git ref */
 export interface DeploymentContext {
   versionSlot: string; // sanitized directory name (e.g., "v2.1.0", "feature-auth")
+  versionName: string; // what versionSlot was sanitized from: the version input when given, else the ref
   originalRef: string; // original git ref (e.g., "refs/tags/v2.1.0")
   sha: string; // commit SHA
   timestamp: string; // ISO 8601 deploy timestamp
@@ -122,6 +123,7 @@ export interface RenamedSlot extends SlotRename {
 
 /** Result returned from the deploy pipeline */
 export interface DeployResult {
+  versionName: string;  // what `version` was sanitized from: the version input when given, else the ref
   version: string;
   url: string;
   removedVersions: string[];  // version slots removed during cleanup

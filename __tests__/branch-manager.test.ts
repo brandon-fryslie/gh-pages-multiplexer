@@ -142,6 +142,7 @@ describe('widget injection in deploy pipeline', () => {
   const repoMeta = { owner: 'acme', repo: 'widgets' };
   const wctx: DeploymentContext = {
     versionSlot,
+    versionName: 'refs/tags/v1.0.0',
     originalRef: 'refs/tags/v1.0.0',
     sha: 'abc123',
     timestamp: '2026-04-06T00:00:00Z',

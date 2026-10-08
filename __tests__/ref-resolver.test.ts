@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { sanitizeRef, matchesPatterns, resolveContext } from '../src/ref-resolver.js';
 import type { DeployConfig } from '../src/types.js';
+import { ROOT_ENTRIES } from '../src/root-entries.js';
 
 const baseConfig = (overrides: Partial<DeployConfig> = {}): DeployConfig => ({
   sourceDir: 'dist',
@@ -98,6 +99,20 @@ describe('sanitizeRef', () => {
       const slot = sanitizeRef(ref);
       expect(sanitizeRef(slot)).toBe(slot);
     }
+  });
+
+  it('escapes the first character of a root entry the action owns, in any case, so a slot never lands on one', () => {
+    for (const name of Object.values(ROOT_ENTRIES).filter((n) => !n.startsWith('.'))) {
+      const slot = sanitizeRef(name);
+      expect(slot).toMatch(/^~[0-9A-F]{2}/);
+      expect(slot.toLowerCase()).not.toBe(name.toLowerCase());
+      expect(sanitizeRef(slot)).toBe(slot);
+    }
+    expect(sanitizeRef('refs/tags/_versions')).toBe('~5Fversions');
+    expect(sanitizeRef('Versions.JSON')).toBe('~56ersions.JSON');
+    expect(sanitizeRef('cname')).toBe('~63name');
+    expect(sanitizeRef('versions')).toBe('versions');
+    expect(sanitizeRef('.nojekyll')).toBe('nojekyll');
   });
 
   it('throws on empty result', () => {

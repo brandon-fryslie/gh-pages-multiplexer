@@ -7,6 +7,7 @@
 // escapeHtml(). No raw ${userData} is permitted anywhere in the rendered output.
 
 import type { Manifest, ManifestEntry, CommitInfo } from './types.js';
+import { ROOT_ENTRIES } from './root-entries.js';
 
 export interface RepoMeta {
   owner: string;
@@ -143,7 +144,7 @@ const PR_VERSION_RE = /^pr-\d+$/;
  */
 export function renderRedirectHtml(manifest: Manifest): string {
   const latest = manifest.versions.find((v) => !PR_VERSION_RE.test(v.version));
-  const target = latest ? `./${escapeHtml(latest.version)}/` : './_versions/';
+  const target = latest ? `./${escapeHtml(latest.version)}/` : `./${ROOT_ENTRIES.versionIndex}/`;
   return (
     `<!DOCTYPE html>\n` +
     `<html lang="en">\n` +

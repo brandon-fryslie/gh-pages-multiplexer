@@ -6,6 +6,7 @@ import path from 'node:path';
 import type { DeploymentContext } from './types.js';
 import { injectBaseHref, rewriteUrls } from './base-path.js';
 import { findHtmlFiles } from './slot-pages.js';
+import { ROOT_ENTRIES } from './root-entries.js';
 
 /**
  * Copy sourceDir into workdir/<versionSlot>/, then apply base path correction
@@ -44,7 +45,7 @@ export async function placeContent(
   }
 
   // Pitfall 4: ensure .nojekyll exists at the workdir root (create if missing).
-  await writeFile(path.join(workdir, '.nojekyll'), '', { flag: 'a' });
+  await writeFile(path.join(workdir, ROOT_ENTRIES.nojekyll), '', { flag: 'a' });
 }
 
 type HtmlTransform = (html: string, basePath: string, filename: string) => string;

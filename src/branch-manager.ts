@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, PageCopies, RenamedSlot, SlotPages, SlotRename, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
+import { ROOT_ENTRIES } from './root-entries.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
 import { rebaseUrls } from './base-path.js';
 import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative, findSlotHtmlFiles } from './slot-pages.js';
@@ -228,7 +229,7 @@ export async function commitAndPush(
  */
 export async function readCnameFile(workdir: string): Promise<string | null> {
   try {
-    const raw = await readFile(path.join(workdir, 'CNAME'), 'utf8');
+    const raw = await readFile(path.join(workdir, ROOT_ENTRIES.cname), 'utf8');
     return raw.trim();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -295,10 +296,10 @@ export async function writeIndexHtml(
 ): Promise<void> {
   // Root index.html redirects to the latest non-PR version.
   const redirectHtml = renderRedirectHtml(manifest);
-  await writeFile(path.join(workdir, 'index.html'), redirectHtml, 'utf8');
+  await writeFile(path.join(workdir, ROOT_ENTRIES.redirect), redirectHtml, 'utf8');
 
   // Version listing lives at _versions/index.html — still accessible, just not the root.
-  const versionsDir = path.join(workdir, '_versions');
+  const versionsDir = path.join(workdir, ROOT_ENTRIES.versionIndex);
   await mkdir(versionsDir, { recursive: true });
   const listingHtml = renderIndexHtml(manifest, repoMeta);
   await writeFile(path.join(versionsDir, 'index.html'), listingHtml, 'utf8');
@@ -327,8 +328,8 @@ export async function injectWidgetIntoSlots(
   for (const slot of slots) {
     addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path.join(workdir, slot), {
       siteRoot,
-      manifestPath: 'versions.json',
-      indexPath: '_versions/',
+      manifestPath: ROOT_ENTRIES.manifest,
+      indexPath: `${ROOT_ENTRIES.versionIndex}/`,
       currentVersion: slot,
       ...customization,
     }));
@@ -373,7 +374,7 @@ export async function writeRobotsTxt(
   siteRoot: string,
 ): Promise<void> {
   const txt = renderRobotsTxt(manifest, siteRoot);
-  await writeFile(path.join(workdir, 'robots.txt'), txt, 'utf8');
+  await writeFile(path.join(workdir, ROOT_ENTRIES.robots), txt, 'utf8');
 }
 
 /**
@@ -393,7 +394,7 @@ export async function writeSitemapXml(
   baseUrl: string,
   lastmod: string,
 ): Promise<void> {
-  await writeFile(path.join(workdir, 'sitemap.xml'), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
+  await writeFile(path.join(workdir, ROOT_ENTRIES.sitemap), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
 }
 
 /**
@@ -406,7 +407,7 @@ export async function writeHealthJson(
   generatedAt: string,
 ): Promise<void> {
   const record = renderHealth(manifest, generatedAt);
-  await writeFile(path.join(workdir, '_health.json'), serializeHealth(record), 'utf8');
+  await writeFile(path.join(workdir, ROOT_ENTRIES.health), serializeHealth(record), 'utf8');
 }
 
 /**
@@ -417,7 +418,7 @@ export async function writeStatsHtml(
   workdir: string,
   repoMeta: RepoMeta,
 ): Promise<void> {
-  const versionsDir = path.join(workdir, '_versions');
+  const versionsDir = path.join(workdir, ROOT_ENTRIES.versionIndex);
   await mkdir(versionsDir, { recursive: true });
   const html = renderStatsHtml(repoMeta);
   await writeFile(path.join(versionsDir, 'stats.html'), html, 'utf8');

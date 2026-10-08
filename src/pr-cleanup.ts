@@ -1,12 +1,13 @@
 // [LAW:single-enforcer] This module is the sole place that knows how to determine
 //   which PR versions are stale. The adapter calls it; the pipeline never does.
-// [LAW:one-way-deps] This module depends on types.ts only. It does not depend on
+// [LAW:one-way-deps] This module depends on types.ts and root-entries.ts only. It does not depend on
 //   the deploy pipeline or any pipeline stage module.
 // [LAW:dataflow-not-control-flow] findClosedPrVersions always queries all PR entries
 //   and always returns a list. Empty input → empty output. API errors skip individual
 //   entries (opportunistic cleanup retries on next deploy).
 import * as core from '@actions/core';
 import type { Manifest } from './types.js';
+import { ROOT_ENTRIES } from './root-entries.js';
 
 const PR_VERSION_RE = /^pr-(\d+)$/;
 
@@ -65,7 +66,7 @@ export async function fetchRemoteManifest(
     res = await octokit.rest.repos.getContent({
       owner,
       repo,
-      path: 'versions.json',
+      path: ROOT_ENTRIES.manifest,
       ref: targetBranch,
     });
   } catch {
