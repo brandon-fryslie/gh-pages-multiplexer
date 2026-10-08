@@ -5,7 +5,7 @@ import { cp, rm, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DeploymentContext } from './types.js';
 import { injectBaseHref, rewriteUrls } from './base-path.js';
-import { findSlotHtmlFiles } from './slot-pages.js';
+import { findHtmlFiles } from './slot-pages.js';
 
 /**
  * Copy sourceDir into workdir/<versionSlot>/, then apply base path correction
@@ -35,7 +35,8 @@ export async function placeContent(
   //   the identity — `none` is an explicit contract from the caller that their build already
   //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
   const transform = selectTransform(basePathMode);
-  const htmlFiles = await findSlotHtmlFiles(target);
+  // cp just created target, so it must exist: a missing one fails loudly.
+  const htmlFiles = await findHtmlFiles(target);
   for (const file of htmlFiles) {
     const html = await readFile(file, 'utf8');
     const corrected = transform(html, context.basePath, path.basename(file));

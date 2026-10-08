@@ -32318,20 +32318,13 @@ const PLACEMENTS = ['inserted', 'refreshed', 'current'];
 // [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
 //   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
 //   widget and the storage wrapper all find a slot's pages through it.
-// [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
+// [LAW:no-defensive-null-guards] fs errors propagate; only a manifest slot with no directory reads as zero pages.
+// Every *.html file below `dir`, which must exist.
 async function findHtmlFiles(dir) {
-    const results = [];
-    const entries = await promises.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-        const full = path__namespace$1.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles(full)));
-        }
-        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-            results.push(full);
-        }
-    }
-    return results;
+    const entries = await promises.readdir(dir, { recursive: true, withFileTypes: true });
+    return entries
+        .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.html'))
+        .map((entry) => path__namespace$1.join(entry.parentPath, entry.name));
 }
 // A slot listed in versions.json can have no directory: git does not track empty directories, so a
 // slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
@@ -33859,7 +33852,8 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
     //   the identity — `none` is an explicit contract from the caller that their build already
     //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
     const transform = selectTransform(basePathMode);
-    const htmlFiles = await findSlotHtmlFiles(target);
+    // cp just created target, so it must exist: a missing one fails loudly.
+    const htmlFiles = await findHtmlFiles(target);
     for (const file of htmlFiles) {
         const html = await promises.readFile(file, 'utf8');
         const corrected = transform(html, context.basePath, path$1.basename(file));
