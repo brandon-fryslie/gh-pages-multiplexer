@@ -32312,8 +32312,62 @@ function validateWidgetColor(raw) {
 
 // [LAW:one-source-of-truth] Shared data contracts for the entire deployment pipeline.
 // All pipeline stages consume and produce instances of these types.
-/** What placing the current nav widget did to one page. */
-const WIDGET_PLACEMENTS = ['inserted', 'refreshed', 'current'];
+/** What placing the current nav widget or storage wrapper did to one page. */
+const PLACEMENTS = ['inserted', 'refreshed', 'current'];
+
+// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
+//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
+// [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
+async function findHtmlFiles$2(dir) {
+    const results = [];
+    const entries = await promises.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const full = path__namespace$1.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            results.push(...(await findHtmlFiles$2(full)));
+        }
+        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
+            results.push(full);
+        }
+    }
+    return results;
+}
+// A slot listed in versions.json can have no directory: git does not track empty directories, so a
+// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
+async function findSlotHtmlFiles(slotDir) {
+    try {
+        return await findHtmlFiles$2(slotDir);
+    }
+    catch (err) {
+        if (err.code === 'ENOENT' && err.path === slotDir)
+            return [];
+        throw err;
+    }
+}
+const SCRIPT_CLOSE = '</script>';
+/**
+ * Replaces the block in `html` that opens with `open` by `render(existing block)`. Every block this
+ * action has ever emitted ends at the first </script> after its opening: each renderer escapes `</`
+ * in the values it inlines. Null when the page carries no such block.
+ */
+function refreshBlock(html, open, render, filePath) {
+    const start = html.indexOf(open);
+    if (start === -1)
+        return null;
+    const close = html.indexOf(SCRIPT_CLOSE, start);
+    if (close === -1)
+        throw new Error(`${filePath}: block opening ${JSON.stringify(open)} has no closing ${SCRIPT_CLOSE}`);
+    const end = close + SCRIPT_CLOSE.length;
+    const placed = html.slice(0, start) + render(html.slice(start, end)) + html.slice(end);
+    return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
+}
+function emptyPlacementCounts() {
+    return { inserted: 0, refreshed: 0, current: 0 };
+}
+function addPlacementCounts(total, counts) {
+    for (const placement of PLACEMENTS)
+        total[placement] += counts[placement];
+}
 
 // [LAW:one-source-of-truth] WIDGET_MARKER is the sole identifier for "this file already has the widget."
 //   The marker is part of the script template, so generation and detection share one constant.
@@ -32756,33 +32810,6 @@ function getWidgetScriptTag(opts) {
 })();
 </script>`;
 }
-// ---- Recursive walk ---------------------------------------------------------
-async function findHtmlFiles$3(dir) {
-    const results = [];
-    const entries = await promises.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-        const full = path__namespace$1.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles$3(full)));
-        }
-        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-            results.push(full);
-        }
-    }
-    return results;
-}
-// A slot listed in versions.json can have no directory: git does not track empty directories, so a
-// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
-async function findSlotHtmlFiles(slotDir) {
-    try {
-        return await findHtmlFiles$3(slotDir);
-    }
-    catch (err) {
-        if (err.code === 'ENOENT' && err.path === slotDir)
-            return [];
-        throw err;
-    }
-}
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 function insertScript(html, scriptTag, filePath) {
     // [LAW:dataflow-not-control-flow] All three branches emit `original + scriptTag`.
@@ -32799,26 +32826,9 @@ function insertScript(html, scriptTag, filePath) {
     warning(`Malformed HTML in ${filePath}: no </body> or </html>; appending widget at end of file`);
     return html + scriptTag;
 }
-// Every widget block this action has ever emitted opens with WIDGET_OPEN and ends at the first
-// </script> after it: getWidgetScriptTag escapes every `</` in the values it inlines (T-04-01).
 const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
-const SCRIPT_CLOSE = '</script>';
-function emptyPlacementCounts() {
-    return { inserted: 0, refreshed: 0, current: 0 };
-}
-function addPlacementCounts(total, counts) {
-    for (const placement of WIDGET_PLACEMENTS)
-        total[placement] += counts[placement];
-}
 function placeWidget(html, scriptTag, filePath) {
-    const start = html.indexOf(WIDGET_OPEN);
-    if (start === -1)
-        return { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
-    const close = html.indexOf(SCRIPT_CLOSE, start);
-    if (close === -1)
-        throw new Error(`${filePath}: nav widget block has no closing ${SCRIPT_CLOSE}`);
-    const placed = html.slice(0, start) + scriptTag + html.slice(close + SCRIPT_CLOSE.length);
-    return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
+    return refreshBlock(html, WIDGET_OPEN, () => scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
 }
 /**
  * Walks versionDir recursively and places the current widget in every *.html file: inserted where
@@ -33173,7 +33183,7 @@ const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
 const EXISTING_CANONICAL_BLOCK_RE = new RegExp(`${CANONICAL_MARKER.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*<link rel="canonical"[^>]*>`, 'g');
 // Detect user-authored canonical (any `<link rel="canonical"` not preceded by our marker).
 const USER_CANONICAL_RE = /<link\s+[^>]*rel=["']canonical["'][^>]*>/i;
-async function findHtmlFiles$2(dir) {
+async function findHtmlFiles$1(dir) {
     const out = [];
     async function walk(d) {
         let entries;
@@ -33225,7 +33235,7 @@ function insertInHead(html, tag) {
  * Returns the count of files mutated.
  */
 async function injectCanonicalIntoDir(versionDir, canonicalBase) {
-    const htmlFiles = await findHtmlFiles$2(versionDir);
+    const htmlFiles = await findHtmlFiles$1(versionDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${versionDir}, no canonical injection needed`);
         return 0;
@@ -33256,7 +33266,7 @@ async function injectCanonicalIntoDir(versionDir, canonicalBase) {
  * Returns the count of files newly injected.
  */
 async function injectNoindexIntoDir(prDir) {
-    const htmlFiles = await findHtmlFiles$2(prDir);
+    const htmlFiles = await findHtmlFiles$1(prDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${prDir}, no noindex injection needed`);
         return 0;
@@ -33309,8 +33319,9 @@ function autoNamespace(owner, repo, version) {
 // - Cross-origin iframes are unaffected (they have their own origin)
 function renderWrapperScriptBody(namespace) {
     // NOTE: The namespace is the only user-controlled value. It's a string embedded as
-    // a JSON literal to prevent any script-breaking characters.
-    const NS_LITERAL = JSON.stringify(namespace);
+    // a JSON literal with every `<` escaped, so no `</script` or `<!--` in it can move where the
+    // script element ends, or the </script> slot-pages.refreshBlock finds its end at.
+    const NS_LITERAL = JSON.stringify(namespace).replace(/</g, '\\u003c');
     return `(function(){
 'use strict';
 if (window.__ghPmStorageWrapped) return;
@@ -33396,8 +33407,8 @@ window.__ghPmStorageNamespace = NS;
 })();`;
 }
 /**
- * Render the full `<script>` tag to inject into the top of `<head>`. Idempotent
- * via STORAGE_WRAPPER_MARKER.
+ * Render the full `<script>` tag to inject into the top of `<head>`. The marker
+ * identifies the block so later deploys can re-render it.
  *
  * Inline script (not `src`) so it executes synchronously before any subsequent
  * `<head>` content — including user scripts that might access localStorage.
@@ -33406,78 +33417,65 @@ function renderStorageWrapperScriptTag(opts) {
     const body = renderWrapperScriptBody(opts.namespace);
     return `${STORAGE_WRAPPER_MARKER}<script>${body}</script>`;
 }
+// Every wrapper block this action has ever emitted declares its namespace on this line.
+const NS_DECLARATION = /\nvar NS = ("(?:[^"\\\n]|\\.)*");\n/;
+/**
+ * The namespace a deployed wrapper block was rendered with. The page is its record: it is the
+ * prefix the slot's users' data already lives under, so a re-render must keep it.
+ */
+function readStorageWrapperNamespace(block, filePath) {
+    const declaration = NS_DECLARATION.exec(block);
+    if (declaration === null)
+        throw new Error(`${filePath}: storage wrapper block declares no namespace`);
+    return JSON.parse(declaration[1]);
+}
 
-// [LAW:single-enforcer] This module is the only place that injects the storage
+// [LAW:single-enforcer] This module is the only place that places the storage
 //   wrapper script tag into HTML files.
-// [LAW:dataflow-not-control-flow] Walks html files unconditionally. An "enabled"
-//   flag of false produces zero mutations (returns 0); empty directory also
-//   returns 0. Same data shape either way.
+// [LAW:one-source-of-truth] A deployed page is the record of whether its slot's deploy opted into
+//   the wrapper: a page carrying a wrapper block has it re-rendered from the current template on
+//   every deploy, and only the slot a deploy opts in gains blocks where its pages have none.
 // [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
-async function findHtmlFiles$1(dir) {
-    const out = [];
-    async function walk(d) {
-        let entries;
-        try {
-            entries = await promises.readdir(d, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const e of entries) {
-            const full = path$1.join(d, e.name);
-            if (e.isDirectory())
-                await walk(full);
-            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
-                out.push(full);
-        }
-    }
-    await walk(dir);
-    return out;
-}
-/**
- * Insert tag as the first child of <head>, or before </head> if no opening tag
- * is found, or wrap the document in a minimal <head> for pathological HTML.
- * [LAW:dataflow-not-control-flow] Three data-driven positions, one insertion op.
- */
+// The head's first child goes right after the page's prologue: the doctype, <html> and <head> start
+// tags, and the whitespace and comments between them. Only those can come before the head, so a
+// `<head` anywhere later is text, not the tag. A page may omit any of them (the parser then opens
+// the head itself), so every part is optional and this matches every document, if only as "".
+const HEAD_START = /^(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<html(?=[\s>])[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<head(?=[\s>])[^>]*>)?/i;
+/** Insert tag as the head's first child, so it runs before any script the page carries. */
 function insertAtHeadStart(html, tag) {
-    const headOpen = html.search(/<head[^>]*>/i);
-    if (headOpen !== -1) {
-        const end = html.indexOf('>', headOpen) + 1;
-        return html.slice(0, end) + tag + html.slice(end);
-    }
-    const headClose = html.toLowerCase().lastIndexOf('</head>');
-    if (headClose !== -1) {
-        return html.slice(0, headClose) + tag + html.slice(headClose);
-    }
-    return `<head>${tag}</head>` + html;
+    const end = HEAD_START.exec(html)[0].length;
+    return html.slice(0, end) + tag + html.slice(end);
+}
+const STORAGE_WRAPPER_OPEN = `${STORAGE_WRAPPER_MARKER}<script>`;
+// [LAW:dataflow-not-control-flow] Coverage is data: it picks what a page without a wrapper block becomes.
+const PAGE_WITHOUT_WRAPPER = {
+    'every-page': (html, tag) => ({ html: insertAtHeadStart(html, tag), placement: 'inserted' }),
+    'wrapped-pages': () => null,
+};
+// A page's wrapper is re-rendered from the current template with the namespace the page already
+// carries: its users' data lives under that prefix, whatever owner/repo spelling this deploy has.
+function rerenderWrapper(filePath) {
+    return (block) => renderStorageWrapperScriptTag({ namespace: readStorageWrapperNamespace(block, filePath) });
 }
 /**
- * Walk `versionDir` recursively and inject the storage-wrapper script into
- * every *.html file. Idempotent: files already containing the marker are left
- * byte-identical.
- *
- * Returns the count of files newly injected. Zero when the walk finds no HTML,
- * or when `opts` is undefined (a "disabled" data value, not a guarded skip).
+ * Walk `slotDir` recursively and place the current storage wrapper in the *.html files `coverage`
+ * selects: inserted with `opts` where a page has none, re-rendered where an earlier deploy left one.
+ * Files whose block is already current are not rewritten.
  */
-async function injectStorageWrapperIntoDir(versionDir, opts) {
-    if (!opts)
-        return 0; // disabled-as-data: no files to walk for this deploy
+async function placeStorageWrapperInSlot(slotDir, opts, coverage) {
     const tag = renderStorageWrapperScriptTag(opts);
-    const htmlFiles = await findHtmlFiles$1(versionDir);
-    if (htmlFiles.length === 0) {
-        info(`0 HTML files in ${versionDir}, no storage-wrapper injection needed`);
-        return 0;
-    }
-    let count = 0;
-    for (const file of htmlFiles) {
+    const counts = emptyPlacementCounts();
+    for (const file of await findSlotHtmlFiles(slotDir)) {
         const original = await promises.readFile(file, 'utf8');
-        if (original.includes(STORAGE_WRAPPER_MARKER))
+        const placed = refreshBlock(original, STORAGE_WRAPPER_OPEN, rerenderWrapper(file), file) ??
+            PAGE_WITHOUT_WRAPPER[coverage](original, tag);
+        if (placed === null)
             continue;
-        const next = insertAtHeadStart(original, tag);
-        await promises.writeFile(file, next, 'utf8');
-        count++;
+        if (placed.placement !== 'current')
+            await promises.writeFile(file, placed.html, 'utf8');
+        counts[placed.placement]++;
     }
-    return count;
+    return counts;
 }
 
 // [LAW:dataflow-not-control-flow] Every publish attempt runs the same probe -> worktree -> render ->
@@ -33690,6 +33688,19 @@ async function injectWidgetIntoSlots(workdir, siteRoot, slots, customization) {
     }
     return total;
 }
+/**
+ * Place the current storage wrapper in each listed slot. The wrapper installs a Proxy around
+ * window.localStorage and window.sessionStorage that prefixes every key with a namespace: the one a
+ * page's wrapper already carries, or `gh-pm:<owner>/<repo>/<slot>:` for a page wrapped now.
+ */
+async function placeStorageWrapperInSlots(workdir, repoMeta, slots) {
+    const total = emptyPlacementCounts();
+    for (const { slot, coverage } of slots) {
+        const opts = { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, slot) };
+        addPlacementCounts(total, await placeStorageWrapperInSlot(path__namespace$1.join(workdir, slot), opts, coverage));
+    }
+    return total;
+}
 // ---- SEO / health / stats writers ------------------------------------------
 // [LAW:single-enforcer] All writes to the gh-pages worktree live in this module.
 // The pure renderers / injectors produce content; these wrappers land it on disk.
@@ -33745,22 +33756,6 @@ async function writeStatsHtml(workdir, repoMeta) {
  * and which PR directory to noindex via `currentPrSlot` (null when current
  * deploy is non-PR).
  */
-/**
- * Inject the storage-wrapper script into every HTML file in a version directory.
- * The wrapper runs synchronously at page load and installs a Proxy around
- * window.localStorage and window.sessionStorage that transparently prefixes all
- * keys with `gh-pm:<owner>/<repo>/<version>:`.
- *
- * Enabled-as-data: when `enabled` is false, this is a zero-work no-op. No branching
- * in the caller.
- */
-async function injectStorageWrapperForVersion(workdir, versionSlot, repoMeta, enabled) {
-    const versionDir = path__namespace$1.join(workdir, versionSlot);
-    const opts = enabled
-        ? { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, versionSlot) }
-        : undefined;
-    return injectStorageWrapperIntoDir(versionDir, opts);
-}
 async function applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot) {
     let canonicalCount = 0;
     // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
@@ -34095,6 +34090,7 @@ async function deploy(config, source) {
                 outcome: published.kind,
                 attempts: attempt,
                 widget: rendered.widget,
+                storageWrapper: rendered.storageWrapper,
             };
         }
         lostOn = { tip, rejection: published.rejection };
@@ -34103,9 +34099,10 @@ async function deploy(config, source) {
 }
 // The one summary line of a deploy, printed by both the CLI and the Action.
 function deploySummary(result) {
-    const { inserted, refreshed, current } = result.widget;
+    const placed = ({ inserted, refreshed, current }) => `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
-        `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
+        `nav widget ${placed(result.widget)}; ` +
+        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -34161,12 +34158,16 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
         position: config.widgetPosition,
         color: config.widgetColor,
     });
-    // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
-    // and sessionStorage for deployed apps so repos on the same *.github.io origin
-    // don't collide. Enabled-as-data: when config.namespaceStorage is false, this
-    // is a zero-work no-op.
-    const storageCount = await injectStorageWrapperForVersion(workdir, context.versionSlot, { owner: repoOwner, repo: repoName }, config.namespaceStorage);
-    info(`Injected storage wrapper into ${storageCount} HTML file(s) in ${context.versionSlot}`);
+    // Stage 4.6: Place the current storage wrapper, which namespaces localStorage and sessionStorage so
+    // repos on the same *.github.io origin don't collide. namespace-storage decides the deployed slot
+    // only: its pages were just placed from the build. Every other slot keeps the choice its own deploy
+    // made, recorded in its pages, and only has its wrappers re-rendered.
+    const deployedSlot = config.namespaceStorage ? 'every-page' : 'wrapped-pages';
+    const storageWrapperPages = await placeStorageWrapperInSlots(workdir, { owner: repoOwner, repo: repoName }, cleanedManifest.versions.map((v) => ({
+        slot: v.version,
+        coverage: v.version === context.versionSlot ? deployedSlot : 'wrapped-pages',
+    })));
+    const storageWrapper = { deployedSlot, pages: storageWrapperPages };
     // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
     // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
     // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
@@ -34189,7 +34190,7 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
-    return { context, url: `${baseUrl}${context.basePath}`, widget };
+    return { context, url: `${baseUrl}${context.basePath}`, widget, storageWrapper };
 }
 
 // [LAW:one-type-per-behavior] CLI is a second adapter into the same deploy() pipeline used by the

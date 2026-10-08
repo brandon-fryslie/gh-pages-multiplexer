@@ -41,8 +41,9 @@ export function autoNamespace(owner: string, repo: string, version: string): str
 // - Cross-origin iframes are unaffected (they have their own origin)
 function renderWrapperScriptBody(namespace: string): string {
   // NOTE: The namespace is the only user-controlled value. It's a string embedded as
-  // a JSON literal to prevent any script-breaking characters.
-  const NS_LITERAL = JSON.stringify(namespace);
+  // a JSON literal with every `<` escaped, so no `</script` or `<!--` in it can move where the
+  // script element ends, or the </script> slot-pages.refreshBlock finds its end at.
+  const NS_LITERAL = JSON.stringify(namespace).replace(/</g, '\\u003c');
   return `(function(){
 'use strict';
 if (window.__ghPmStorageWrapped) return;
@@ -129,8 +130,8 @@ window.__ghPmStorageNamespace = NS;
 }
 
 /**
- * Render the full `<script>` tag to inject into the top of `<head>`. Idempotent
- * via STORAGE_WRAPPER_MARKER.
+ * Render the full `<script>` tag to inject into the top of `<head>`. The marker
+ * identifies the block so later deploys can re-render it.
  *
  * Inline script (not `src`) so it executes synchronously before any subsequent
  * `<head>` content — including user scripts that might access localStorage.
@@ -138,4 +139,17 @@ window.__ghPmStorageNamespace = NS;
 export function renderStorageWrapperScriptTag(opts: StorageWrapperOpts): string {
   const body = renderWrapperScriptBody(opts.namespace);
   return `${STORAGE_WRAPPER_MARKER}<script>${body}</script>`;
+}
+
+// Every wrapper block this action has ever emitted declares its namespace on this line.
+const NS_DECLARATION = /\nvar NS = ("(?:[^"\\\n]|\\.)*");\n/;
+
+/**
+ * The namespace a deployed wrapper block was rendered with. The page is its record: it is the
+ * prefix the slot's users' data already lives under, so a re-render must keep it.
+ */
+export function readStorageWrapperNamespace(block: string, filePath: string): string {
+  const declaration = NS_DECLARATION.exec(block);
+  if (declaration === null) throw new Error(`${filePath}: storage wrapper block declares no namespace`);
+  return JSON.parse(declaration[1]) as string;
 }

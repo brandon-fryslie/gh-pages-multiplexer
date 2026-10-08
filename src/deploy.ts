@@ -9,7 +9,7 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, WidgetPlacementCounts } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, WrapperCoverage } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
@@ -23,7 +23,7 @@ import {
   writeHealthJson,
   writeStatsHtml,
   applySeoTags,
-  injectStorageWrapperForVersion,
+  placeStorageWrapperInSlots,
 } from './branch-manager.js';
 import { readManifest, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
@@ -69,6 +69,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
         outcome: published.kind,
         attempts: attempt,
         widget: rendered.widget,
+        storageWrapper: rendered.storageWrapper,
       };
     }
     lostOn = { tip, rejection: published.rejection };
@@ -78,9 +79,11 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
 
 // The one summary line of a deploy, printed by both the CLI and the Action.
 export function deploySummary(result: DeployResult): string {
-  const { inserted, refreshed, current } = result.widget;
+  const placed = ({ inserted, refreshed, current }: PlacementCounts): string =>
+    `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
   return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
-    `nav widget ${inserted} inserted, ${refreshed} refreshed, ${current} current)`;
+    `nav widget ${placed(result.widget)}; ` +
+    `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
 }
 
 /**
@@ -92,7 +95,7 @@ async function renderDeployment(
   workdir: string,
   config: DeployConfig,
   sourceRepoDir: string,
-): Promise<{ context: DeploymentContext; url: string; widget: WidgetPlacementCounts }> {
+): Promise<{ context: DeploymentContext; url: string; widget: PlacementCounts; storageWrapper: DeployResult['storageWrapper'] }> {
   // Stage 2: Resolve ref context. CNAME presence affects basePath computation.
   const cnameDomain = await readCnameFile(workdir);
   const context = resolveContext(config, cnameDomain !== null);
@@ -155,17 +158,20 @@ async function renderDeployment(
     },
   );
 
-  // Stage 4.6: Storage wrapper injection. Transparently namespaces localStorage
-  // and sessionStorage for deployed apps so repos on the same *.github.io origin
-  // don't collide. Enabled-as-data: when config.namespaceStorage is false, this
-  // is a zero-work no-op.
-  const storageCount = await injectStorageWrapperForVersion(
+  // Stage 4.6: Place the current storage wrapper, which namespaces localStorage and sessionStorage so
+  // repos on the same *.github.io origin don't collide. namespace-storage decides the deployed slot
+  // only: its pages were just placed from the build. Every other slot keeps the choice its own deploy
+  // made, recorded in its pages, and only has its wrappers re-rendered.
+  const deployedSlot: WrapperCoverage = config.namespaceStorage ? 'every-page' : 'wrapped-pages';
+  const storageWrapperPages = await placeStorageWrapperInSlots(
     workdir,
-    context.versionSlot,
     { owner: repoOwner, repo: repoName },
-    config.namespaceStorage,
+    cleanedManifest.versions.map((v) => ({
+      slot: v.version,
+      coverage: v.version === context.versionSlot ? deployedSlot : 'wrapped-pages',
+    })),
   );
-  core.info(`Injected storage wrapper into ${storageCount} HTML file(s) in ${context.versionSlot}`);
+  const storageWrapper = { deployedSlot, pages: storageWrapperPages };
 
   // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
   // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
@@ -191,5 +197,5 @@ async function renderDeployment(
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}`, widget };
+  return { context, url: `${baseUrl}${context.basePath}`, widget, storageWrapper };
 }

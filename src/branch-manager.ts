@@ -16,9 +16,10 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, Remote, SourceRepo, WidgetPlacementCounts } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
-import { injectWidgetIntoHtmlFiles, emptyPlacementCounts, addPlacementCounts } from './widget-injector.js';
+import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
+import { emptyPlacementCounts, addPlacementCounts } from './slot-pages.js';
 import { renderRobotsTxt } from './robots-generator.js';
 import {
   findHtmlFilesRelative,
@@ -29,7 +30,7 @@ import {
 import { renderHealth, serializeHealth } from './health-generator.js';
 import { renderStatsHtml } from './stats-renderer.js';
 import { injectCanonicalIntoDir, injectNoindexIntoDir } from './seo-injector.js';
-import { injectStorageWrapperIntoDir } from './storage-wrapper-injector.js';
+import { placeStorageWrapperInSlot } from './storage-wrapper-injector.js';
 import { autoNamespace } from './storage-wrapper.js';
 
 // GIT_AUTHOR_*/GIT_COMMITTER_* outrank any user.name/user.email config, so a deploy commit's identity
@@ -294,7 +295,7 @@ export async function injectWidgetIntoSlots(
   siteRoot: string,
   slots: string[],
   customization: WidgetCustomization,
-): Promise<WidgetPlacementCounts> {
+): Promise<PlacementCounts> {
   const total = emptyPlacementCounts();
   for (const slot of slots) {
     addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path.join(workdir, slot), {
@@ -304,6 +305,29 @@ export async function injectWidgetIntoSlots(
       currentVersion: slot,
       ...customization,
     }));
+  }
+  return total;
+}
+
+export interface SlotWrapperCoverage {
+  slot: string;
+  coverage: WrapperCoverage;
+}
+
+/**
+ * Place the current storage wrapper in each listed slot. The wrapper installs a Proxy around
+ * window.localStorage and window.sessionStorage that prefixes every key with a namespace: the one a
+ * page's wrapper already carries, or `gh-pm:<owner>/<repo>/<slot>:` for a page wrapped now.
+ */
+export async function placeStorageWrapperInSlots(
+  workdir: string,
+  repoMeta: RepoMeta,
+  slots: SlotWrapperCoverage[],
+): Promise<PlacementCounts> {
+  const total = emptyPlacementCounts();
+  for (const { slot, coverage } of slots) {
+    const opts = { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, slot) };
+    addPlacementCounts(total, await placeStorageWrapperInSlot(path.join(workdir, slot), opts, coverage));
   }
   return total;
 }
@@ -383,28 +407,6 @@ export async function writeStatsHtml(
  * and which PR directory to noindex via `currentPrSlot` (null when current
  * deploy is non-PR).
  */
-/**
- * Inject the storage-wrapper script into every HTML file in a version directory.
- * The wrapper runs synchronously at page load and installs a Proxy around
- * window.localStorage and window.sessionStorage that transparently prefixes all
- * keys with `gh-pm:<owner>/<repo>/<version>:`.
- *
- * Enabled-as-data: when `enabled` is false, this is a zero-work no-op. No branching
- * in the caller.
- */
-export async function injectStorageWrapperForVersion(
-  workdir: string,
-  versionSlot: string,
-  repoMeta: RepoMeta,
-  enabled: boolean,
-): Promise<number> {
-  const versionDir = path.join(workdir, versionSlot);
-  const opts = enabled
-    ? { namespace: autoNamespace(repoMeta.owner, repoMeta.repo, versionSlot) }
-    : undefined;
-  return injectStorageWrapperIntoDir(versionDir, opts);
-}
-
 export async function applySeoTags(
   workdir: string,
   nonPrSlots: string[],

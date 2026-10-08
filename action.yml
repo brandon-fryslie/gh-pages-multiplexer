@@ -43,7 +43,7 @@ inputs:
     required: false
     default: ''
   namespace-storage:
-    description: 'When "true", inject a runtime wrapper that transparently namespaces localStorage and sessionStorage by <owner>/<repo>/<version>. Prevents collision between different repos on the same <owner>.github.io origin. Default: "false" (opt-in — the wrapper is a behavior change for deployed apps).'
+    description: 'When "true", inject a runtime wrapper that transparently namespaces localStorage and sessionStorage by <owner>/<repo>/<version>. Prevents collision between different repos on the same <owner>.github.io origin. Applies to the version this deploy publishes. A version keeps its wrapper, and its namespace, until it is redeployed without the flag; each deploy re-renders the wrapper from the current template. Default: "false" (opt-in — the wrapper is a behavior change for deployed apps).'
     required: false
     default: 'false'
   token:
