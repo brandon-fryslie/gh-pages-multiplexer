@@ -433,8 +433,9 @@ export async function writeStatsHtml(
 
 /**
  * Inject/update canonical URLs into every non-PR version directory, pointing at
- * the latest non-PR version's equivalent path. For PR directories, inject
- * noindex instead. `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
+ * the latest non-PR version's equivalent page, or at the page itself when the
+ * latest version has no such page. For PR directories, inject noindex instead.
+ * `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
  * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
  *
  * Data-driven: caller decides which directories to process via `nonPrSlots`
@@ -447,14 +448,17 @@ export async function applySeoTags(
   siteBase: string,
   canonicalSlot: string | null,
   currentPrSlot: string | null,
-): Promise<{ canonicalCount: number; noindexCount: number }> {
+): Promise<{ canonicalCount: number; selfCanonicalCount: number; noindexCount: number }> {
   let canonicalCount = 0;
+  let selfCanonicalCount = 0;
   // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
   //   should be empty (caller ensures); loop trivially finishes with 0.
   if (canonicalSlot !== null) {
+    const canonical = { slot: canonicalSlot, pages: new Set(await findHtmlFilesRelative(path.join(workdir, canonicalSlot))) };
     for (const slot of nonPrSlots) {
-      const versionDir = path.join(workdir, slot);
-      canonicalCount += await injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot);
+      const counts = await injectCanonicalIntoDir(workdir, slot, siteBase, canonical);
+      canonicalCount += counts.written;
+      selfCanonicalCount += counts.selfCanonical;
     }
   }
   let noindexCount = 0;
@@ -462,5 +466,5 @@ export async function applySeoTags(
     const prDir = path.join(workdir, currentPrSlot);
     noindexCount = await injectNoindexIntoDir(prDir);
   }
-  return { canonicalCount, noindexCount };
+  return { canonicalCount, selfCanonicalCount, noindexCount };
 }

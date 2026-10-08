@@ -25,38 +25,63 @@ afterEach(async () => {
 });
 
 describe('injectCanonicalIntoDir', () => {
-  it('injects canonical tag into HTML files', async () => {
-    await writeFile(path.join(dir, 'index.html'), '<html><head><title>x</title></head><body>hi</body></html>');
-    const count = await injectCanonicalIntoDir(dir, 'https://example.com', 'v2.0.0');
-    expect(count).toBe(1);
-    const html = await readFile(path.join(dir, 'index.html'), 'utf8');
+  const page = '<html><head><title>x</title></head><body>hi</body></html>';
+  const latest = (slot: string, ...pages: string[]) => ({ slot, pages: new Set(pages) });
+  async function writePage(slot: string, rel: string, html = page): Promise<string> {
+    const file = path.join(dir, slot, rel);
+    await mkdir(path.dirname(file), { recursive: true });
+    await writeFile(file, html);
+    return file;
+  }
+
+  it('points a page at the same page in the canonical slot', async () => {
+    const file = await writePage('v1', 'index.html');
+    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2.0.0', 'index.html'));
+    expect(counts).toEqual({ written: 1, selfCanonical: 0 });
+    const html = await readFile(file, 'utf8');
     expect(html).toContain(CANONICAL_MARKER);
     expect(html).toContain('<link rel="canonical" href="https://example.com/v2.0.0/index.html">');
   });
 
   it('uses relative path in canonical URL for nested files', async () => {
-    await mkdir(path.join(dir, 'docs'), { recursive: true });
-    await writeFile(path.join(dir, 'docs', 'api.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1.0.0');
-    const html = await readFile(path.join(dir, 'docs', 'api.html'), 'utf8');
-    expect(html).toContain('<link rel="canonical" href="https://example.com/v1.0.0/docs/api.html">');
+    const file = await writePage('v1', 'docs/api.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'docs/api.html'));
+    expect(await readFile(file, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v2/docs/api.html">');
+  });
+
+  it('points a page the canonical slot does not have at itself', async () => {
+    const kept = await writePage('v1', 'index.html');
+    const removed = await writePage('v1', 'docs/old.html');
+    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
+    expect(counts).toEqual({ written: 2, selfCanonical: 1 });
+    expect(await readFile(kept, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v2/index.html">');
+    expect(await readFile(removed, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v1/docs/old.html">');
+  });
+
+  it('repoints a page at itself when the canonical slot drops it', async () => {
+    const file = await writePage('v1', 'old.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'old.html'));
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v3'));
+    const html = await readFile(file, 'utf8');
+    expect(html).toContain('https://example.com/v1/old.html');
+    expect(html).not.toContain('https://example.com/v2/old.html');
+    expect(html.match(new RegExp(CANONICAL_MARKER, 'g'))).toHaveLength(1);
   });
 
   it('is idempotent — running twice leaves file unchanged', async () => {
-    await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
-    const first = await readFile(path.join(dir, 'index.html'), 'utf8');
-    const secondCount = await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
-    expect(secondCount).toBe(0);
-    const second = await readFile(path.join(dir, 'index.html'), 'utf8');
-    expect(second).toBe(first);
+    const file = await writePage('v1', 'index.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
+    const first = await readFile(file, 'utf8');
+    const second = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
+    expect(second).toEqual({ written: 0, selfCanonical: 0 });
+    expect(await readFile(file, 'utf8')).toBe(first);
   });
 
-  it('updates existing gh-pm canonical when base changes', async () => {
-    await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
-    await injectCanonicalIntoDir(dir, 'https://example.com', 'v2');
-    const html = await readFile(path.join(dir, 'index.html'), 'utf8');
+  it('updates existing gh-pm canonical when the canonical slot changes', async () => {
+    const file = await writePage('v1', 'index.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
+    const html = await readFile(file, 'utf8');
     expect(html).toContain('https://example.com/v2/index.html');
     expect(html).not.toContain('https://example.com/v1/index.html');
     // Still has exactly one canonical marker.
@@ -65,41 +90,38 @@ describe('injectCanonicalIntoDir', () => {
 
   it('respects user-authored canonical tags', async () => {
     const original = '<html><head><link rel="canonical" href="https://mysite.com/my-own-url"></head><body></body></html>';
-    await writeFile(path.join(dir, 'index.html'), original);
-    const count = await injectCanonicalIntoDir(dir, 'https://example.com', 'v1');
-    expect(count).toBe(0);
-    const html = await readFile(path.join(dir, 'index.html'), 'utf8');
-    expect(html).toBe(original);
+    const file = await writePage('v1', 'index.html', original);
+    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
+    expect(counts.written).toBe(0);
+    expect(await readFile(file, 'utf8')).toBe(original);
   });
 
-  it('returns 0 for directory with no HTML files', async () => {
-    await writeFile(path.join(dir, 'not-html.txt'), 'hello');
-    expect(await injectCanonicalIntoDir(dir, 'https://example.com', 'v1')).toBe(0);
+  it('writes nothing for a slot with no HTML files', async () => {
+    await writePage('v1', 'not-html.txt', 'hello');
+    expect(await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2'))).toEqual({ written: 0, selfCanonical: 0 });
   });
 
   it('percent-encodes page names in the canonical URL; the slot name is URL-safe as written', async () => {
-    await mkdir(path.join(dir, 'my docs'), { recursive: true });
-    await writeFile(path.join(dir, 'my docs', 'faq#1.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/repo', 'v1-beta');
-    const html = await readFile(path.join(dir, 'my docs', 'faq#1.html'), 'utf8');
-    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1-beta/my%20docs/faq%231.html">');
+    const file = await writePage('v1', 'my docs/faq#1.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com/repo', latest('v1-beta', 'my docs/faq#1.html'));
+    expect(await readFile(file, 'utf8')).toContain('<link rel="canonical" href="https://example.com/repo/v1-beta/my%20docs/faq%231.html">');
   });
 
   it('escapes quotes in URLs', async () => {
-    await writeFile(path.join(dir, 'index.html'), '<html><head></head><body></body></html>');
-    await injectCanonicalIntoDir(dir, 'https://example.com/"evil', 'v1');
-    const html = await readFile(path.join(dir, 'index.html'), 'utf8');
+    const file = await writePage('v1', 'index.html');
+    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com/"evil', latest('v1', 'index.html'));
+    const html = await readFile(file, 'utf8');
     expect(html).toContain('&quot;');
     expect(html).not.toMatch(/href="[^"]*"evil/);
   });
 
-  it('returns 0 for a slot with no directory', async () => {
-    expect(await injectCanonicalIntoDir(path.join(dir, 'missing'), 'https://example.com', 'v1')).toBe(0);
+  it('writes nothing for a slot with no directory', async () => {
+    expect(await injectCanonicalIntoDir(dir, 'missing', 'https://example.com', latest('v1'))).toEqual({ written: 0, selfCanonical: 0 });
   });
 
   it('propagates fs errors other than a missing slot directory', async () => {
     await writeFile(path.join(dir, 'not-a-dir'), '');
-    await expect(injectCanonicalIntoDir(path.join(dir, 'not-a-dir'), 'https://example.com', 'v1')).rejects.toMatchObject({ code: 'ENOTDIR' });
+    await expect(injectCanonicalIntoDir(dir, 'not-a-dir', 'https://example.com', latest('v1'))).rejects.toMatchObject({ code: 'ENOTDIR' });
   });
 });
 

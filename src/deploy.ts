@@ -194,7 +194,8 @@ async function renderDeployment(
   const storageWrapper = { deployedSlot, pages: storageWrapperPages };
 
   // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
-  // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+  // latest non-PR's page, or the page itself when the latest lacks it); noindex
+  // on the current PR directory (if this deploy is a PR).
   // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
   //   null PR slot = zero noindex injections. No guarded skips.
   const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
@@ -206,7 +207,10 @@ async function renderDeployment(
     .map((v) => v.version);
   const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
   const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
-  core.info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
+  core.info(
+    `SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s); ` +
+      `${seoCounts.selfCanonicalCount} page(s) absent from ${latestSlot} canonicalize to themselves`,
+  );
 
   // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
   // Written at the worktree root. Stats dashboard lives under _versions/.

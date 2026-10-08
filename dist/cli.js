@@ -33250,22 +33250,22 @@ function insertInHead(html, tag) {
     return `<head>${tag}</head>` + html;
 }
 /**
- * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
- * replaced; user-authored canonicals are respected (skipped).
- *
- * Returns the count of files mutated.
+ * Inject or update the canonical tag on every HTML file of `slot` (under `workdir`). A page points at
+ * the same page in `canonical` when that slot has it, and at itself otherwise: a canonical naming a
+ * page that does not exist tells crawlers to drop the only live copy. Idempotent: existing gh-pm
+ * canonicals are replaced; user-authored canonicals are respected (skipped).
  */
-async function injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot) {
+async function injectCanonicalIntoDir(workdir, slot, siteBase, canonical) {
+    const versionDir = path$1.join(workdir, slot);
     const relPaths = await findHtmlFilesRelative(versionDir);
-    if (relPaths.length === 0) {
-        info(`0 HTML files in ${versionDir}, no canonical injection needed`);
-        return 0;
-    }
-    let count = 0;
+    const counts = { written: 0, selfCanonical: 0 };
     for (const rel of relPaths) {
         const file = path$1.join(versionDir, rel);
-        const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
+        // [LAW:dataflow-not-control-flow] Every page gets a canonical; only its target slot varies.
+        const targetSlot = canonical.pages.has(rel) ? canonical.slot : slot;
+        if (targetSlot !== canonical.slot)
+            counts.selfCanonical++;
+        const tag = buildCanonicalTag(slotPageUrl(siteBase, targetSlot, rel));
         const original = await promises.readFile(file, 'utf8');
         // Remove any of our previously-injected canonicals (handles update-on-latest-change).
         const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
@@ -33274,10 +33274,10 @@ async function injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot) {
         const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
         if (next !== original) {
             await promises.writeFile(file, next, 'utf8');
-            count++;
+            counts.written++;
         }
     }
-    return count;
+    return counts;
 }
 /**
  * Inject a noindex meta tag into every HTML file in `prDir`. Idempotent
@@ -33803,8 +33803,9 @@ async function writeStatsHtml(workdir, repoMeta) {
 }
 /**
  * Inject/update canonical URLs into every non-PR version directory, pointing at
- * the latest non-PR version's equivalent path. For PR directories, inject
- * noindex instead. `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
+ * the latest non-PR version's equivalent page, or at the page itself when the
+ * latest version has no such page. For PR directories, inject noindex instead.
+ * `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
  * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
  *
  * Data-driven: caller decides which directories to process via `nonPrSlots`
@@ -33813,12 +33814,15 @@ async function writeStatsHtml(workdir, repoMeta) {
  */
 async function applySeoTags(workdir, nonPrSlots, siteBase, canonicalSlot, currentPrSlot) {
     let canonicalCount = 0;
+    let selfCanonicalCount = 0;
     // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
     //   should be empty (caller ensures); loop trivially finishes with 0.
     if (canonicalSlot !== null) {
+        const canonical = { slot: canonicalSlot, pages: new Set(await findHtmlFilesRelative(path__namespace$1.join(workdir, canonicalSlot))) };
         for (const slot of nonPrSlots) {
-            const versionDir = path__namespace$1.join(workdir, slot);
-            canonicalCount += await injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot);
+            const counts = await injectCanonicalIntoDir(workdir, slot, siteBase, canonical);
+            canonicalCount += counts.written;
+            selfCanonicalCount += counts.selfCanonical;
         }
     }
     let noindexCount = 0;
@@ -33826,7 +33830,7 @@ async function applySeoTags(workdir, nonPrSlots, siteBase, canonicalSlot, curren
         const prDir = path__namespace$1.join(workdir, currentPrSlot);
         noindexCount = await injectNoindexIntoDir(prDir);
     }
-    return { canonicalCount, noindexCount };
+    return { canonicalCount, selfCanonicalCount, noindexCount };
 }
 
 // [LAW:one-source-of-truth] versions.json is the sole authoritative record of deployed versions (MNFST-01).
@@ -34206,7 +34210,8 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     })));
     const storageWrapper = { deployedSlot, pages: storageWrapperPages };
     // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
-    // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+    // latest non-PR's page, or the page itself when the latest lacks it); noindex
+    // on the current PR directory (if this deploy is a PR).
     // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
     //   null PR slot = zero noindex injections. No guarded skips.
     const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
@@ -34218,7 +34223,8 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
         .map((v) => v.version);
     const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
     const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
-    info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
+    info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s); ` +
+        `${seoCounts.selfCanonicalCount} page(s) absent from ${latestSlot} canonicalize to themselves`);
     // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
     // Written at the worktree root. Stats dashboard lives under _versions/.
     // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.

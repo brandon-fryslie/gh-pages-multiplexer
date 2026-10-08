@@ -371,13 +371,29 @@ describe('applySeoTags', () => {
   });
 
   it('points every non-PR page at the same page of the canonical slot under the site base', async () => {
-    await mkdir(path.join(workdir, 'v1'), { recursive: true });
-    await writeFile(path.join(workdir, 'v1', 'a b.html'), '<html><head></head><body></body></html>');
-    const counts = await applySeoTags(workdir, ['v1'], 'https://example.com/repo', 'v2', null);
-    expect(counts).toEqual({ canonicalCount: 1, noindexCount: 0 });
-    expect(await fsReadFile(path.join(workdir, 'v1', 'a b.html'), 'utf8')).toContain(
-      '<link rel="canonical" href="https://example.com/repo/v2/a%20b.html">',
-    );
+    for (const slot of ['v1', 'v2']) {
+      await mkdir(path.join(workdir, slot), { recursive: true });
+      await writeFile(path.join(workdir, slot, 'a b.html'), '<html><head></head><body></body></html>');
+    }
+    const counts = await applySeoTags(workdir, ['v1', 'v2'], 'https://example.com/repo', 'v2', null);
+    expect(counts).toEqual({ canonicalCount: 2, selfCanonicalCount: 0, noindexCount: 0 });
+    for (const slot of ['v1', 'v2']) {
+      expect(await fsReadFile(path.join(workdir, slot, 'a b.html'), 'utf8')).toContain(
+        '<link rel="canonical" href="https://example.com/repo/v2/a%20b.html">',
+      );
+    }
+  });
+
+  it('points a page the canonical slot removed at itself, never at a missing page', async () => {
+    await mkdir(path.join(workdir, 'v1', 'docs'), { recursive: true });
+    await mkdir(path.join(workdir, 'v2'), { recursive: true });
+    await writeFile(path.join(workdir, 'v1', 'docs', 'old.html'), '<html><head></head><body></body></html>');
+    await writeFile(path.join(workdir, 'v2', 'index.html'), '<html><head></head><body></body></html>');
+    const counts = await applySeoTags(workdir, ['v1', 'v2'], 'https://example.com/repo', 'v2', null);
+    expect(counts).toEqual({ canonicalCount: 2, selfCanonicalCount: 1, noindexCount: 0 });
+    const html = await fsReadFile(path.join(workdir, 'v1', 'docs', 'old.html'), 'utf8');
+    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1/docs/old.html">');
+    expect(html).not.toContain('/v2/docs/old.html');
   });
 });
 

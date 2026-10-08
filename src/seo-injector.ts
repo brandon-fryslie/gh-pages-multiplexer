@@ -49,28 +49,40 @@ function insertInHead(html: string, tag: string): string {
   return `<head>${tag}</head>` + html;
 }
 
+/** The slot canonicals point at, and the slot-relative paths of the pages it has. */
+export interface CanonicalSlot {
+  slot: string;
+  pages: ReadonlySet<string>;
+}
+
+export interface CanonicalCounts {
+  /** Files whose canonical tag was added or changed. */
+  written: number;
+  /** Pages with no counterpart in the canonical slot, canonicalized to themselves. */
+  selfCanonical: number;
+}
+
 /**
- * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
- * replaced; user-authored canonicals are respected (skipped).
- *
- * Returns the count of files mutated.
+ * Inject or update the canonical tag on every HTML file of `slot` (under `workdir`). A page points at
+ * the same page in `canonical` when that slot has it, and at itself otherwise: a canonical naming a
+ * page that does not exist tells crawlers to drop the only live copy. Idempotent: existing gh-pm
+ * canonicals are replaced; user-authored canonicals are respected (skipped).
  */
 export async function injectCanonicalIntoDir(
-  versionDir: string,
+  workdir: string,
+  slot: string,
   siteBase: string,
-  canonicalSlot: string,
-): Promise<number> {
+  canonical: CanonicalSlot,
+): Promise<CanonicalCounts> {
+  const versionDir = path.join(workdir, slot);
   const relPaths = await findHtmlFilesRelative(versionDir);
-  if (relPaths.length === 0) {
-    core.info(`0 HTML files in ${versionDir}, no canonical injection needed`);
-    return 0;
-  }
-
-  let count = 0;
+  const counts: CanonicalCounts = { written: 0, selfCanonical: 0 };
   for (const rel of relPaths) {
     const file = path.join(versionDir, rel);
-    const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
+    // [LAW:dataflow-not-control-flow] Every page gets a canonical; only its target slot varies.
+    const targetSlot = canonical.pages.has(rel) ? canonical.slot : slot;
+    if (targetSlot !== canonical.slot) counts.selfCanonical++;
+    const tag = buildCanonicalTag(slotPageUrl(siteBase, targetSlot, rel));
 
     const original = await readFile(file, 'utf8');
     // Remove any of our previously-injected canonicals (handles update-on-latest-change).
@@ -81,10 +93,10 @@ export async function injectCanonicalIntoDir(
 
     if (next !== original) {
       await writeFile(file, next, 'utf8');
-      count++;
+      counts.written++;
     }
   }
-  return count;
+  return counts;
 }
 
 /**
