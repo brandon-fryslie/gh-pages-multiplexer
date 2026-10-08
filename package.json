@@ -14,7 +14,8 @@
   "scripts": {
     "build": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript",
     "test": "tsc -p tsconfig.test.json && vitest run --reporter=verbose",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "check:dist": "scripts/check-dist.sh"
   },
   "dependencies": {
     "@actions/core": "^3.0.0",

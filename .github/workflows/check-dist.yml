@@ -1,0 +1,21 @@
+name: check-dist
+
+# The Action runs the committed dist/index.js, so a PR whose dist/ lags src/ ships
+# stale behavior. This fails any such PR or push.
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  check-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: package.json
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:dist
