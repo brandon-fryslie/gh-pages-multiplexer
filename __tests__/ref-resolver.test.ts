@@ -72,10 +72,15 @@ describe('sanitizeRef', () => {
     expect(sanitizeRef('refs/heads/foo///bar')).toBe('foo-bar');
   });
 
-  it('replaces every character a URL path segment cannot carry raw with a hyphen', () => {
-    expect(sanitizeRef('refs/tags/v1#rc')).toBe('v1-rc');
-    expect(sanitizeRef('refs/heads/a&b%c d?e')).toBe('a-b-c-d-e');
-    expect(sanitizeRef("refs/heads/x$y'z(1)é")).toBe('x-y-z-1');
+  it('escapes every character a URL path segment cannot carry raw as ~XX per UTF-8 byte', () => {
+    expect(sanitizeRef('refs/tags/v1#rc')).toBe('v1~23rc');
+    expect(sanitizeRef('refs/heads/a&b%c d?e')).toBe('a~26b~25c~20d~3Fe');
+    expect(sanitizeRef("refs/heads/x$y'z(1)é")).toBe('x~24y~27z~281~29~C3~A9');
+  });
+
+  it('keeps a ref made only of non-ASCII characters, distinct from its neighbours', () => {
+    expect(sanitizeRef('refs/heads/日本')).toBe('~E6~97~A5~E6~9C~AC');
+    expect(sanitizeRef('refs/heads/fix/日本語')).not.toBe(sanitizeRef('refs/heads/fix/中文'));
   });
 
   it('keeps the URL-safe characters a tag commonly carries', () => {
@@ -88,7 +93,7 @@ describe('sanitizeRef', () => {
   });
 
   it('maps a slot name to itself', () => {
-    const refs = ['refs/tags/v1#rc', 'refs/heads/feature/a&b', 'refs/pull/7/merge', 'refs/tags/@s/p@1+b', 'refs/heads/-.x-'];
+    const refs = ['refs/tags/v1#rc', 'refs/heads/feature/a&b', 'refs/pull/7/merge', 'refs/tags/@s/p@1+b', 'refs/heads/-.x-', 'refs/heads/café-日本'];
     for (const ref of refs) {
       const slot = sanitizeRef(ref);
       expect(sanitizeRef(slot)).toBe(slot);
@@ -201,8 +206,8 @@ describe('resolveContext', () => {
 
   it('a URL-unsafe ref yields a base path that names the slot as written', () => {
     const ctx = resolveContext(baseConfig({ ref: 'refs/tags/v1#rc' }));
-    expect(ctx.versionSlot).toBe('v1-rc');
-    expect(ctx.basePath).toBe('/my-repo/v1-rc/');
+    expect(ctx.versionSlot).toBe('v1~23rc');
+    expect(ctx.basePath).toBe('/my-repo/v1~23rc/');
   });
 
   it('empty version field falls back to ref-derived slot', () => {

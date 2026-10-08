@@ -37,3 +37,14 @@ export function rewriteUrls(html: string, basePath: string): string {
     return `${attr}="${prefix}/${rest}"`;
   });
 }
+
+/**
+ * Move every `src`/`href` URL under `fromBase` to the same place under `toBase`, for a slot whose
+ * base path changed. These attributes are where injectBaseHref and rewriteUrls write a base path;
+ * page text, scripts and URLs elsewhere are untouched.
+ */
+export function rebaseUrls(html: string, fromBase: string, toBase: string): string {
+  return html.replace(/(src|href)="([^"]*)"/gi, (attr, name: string, url: string) =>
+    url.startsWith(fromBase) ? `${name}="${toBase}${url.slice(fromBase.length)}"` : attr,
+  );
+}

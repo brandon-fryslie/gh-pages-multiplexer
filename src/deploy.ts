@@ -9,7 +9,7 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, SitemapCoverage, SlotRename, WrapperCoverage } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, RenamedSlot, SitemapCoverage, WrapperCoverage } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
@@ -88,7 +88,7 @@ export function deploySummary(result: DeployResult): string {
     `nav widget ${placed(result.widget)}; ` +
     `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
     `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'}; ` +
-    `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to}`).join(',')})`;
+    `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to} (${r.pages} page(s) rebased)`).join(',')})`;
 }
 
 /**
@@ -104,7 +104,7 @@ async function renderDeployment(
   context: DeploymentContext;
   url: string;
   removedVersions: string[];
-  renamedVersions: SlotRename[];
+  renamedVersions: RenamedSlot[];
   widget: PlacementCounts;
   storageWrapper: DeployResult['storageWrapper'];
   sitemap: SitemapCoverage;
@@ -120,11 +120,7 @@ async function renderDeployment(
   // Stage 3: Read manifest, rename slots that predate the slot-name rule, extract commits, update (pure), write.
   // [LAW:single-enforcer] Every slot in the manifest is a slot name from here on, so no output path encodes one.
   const { manifest: currentManifest, renames } = renameUnsafeSlots(await readManifest(workdir));
-  const rebasedPages = await renameVersionDirectories(workdir, siteRoot, renames);
-  core.info(
-    `Renamed ${renames.length} slot(s) to URL-safe names, rebasing ${rebasedPages} page(s): ` +
-      `[${renames.map((r) => `${r.from} -> ${r.to}`).join(', ')}]`,
-  );
+  const renamedVersions = await renameVersionDirectories(workdir, siteRoot, renames);
   const previousSha =
     currentManifest.versions.find((v) => v.version === context.versionSlot)?.sha ?? null;
   // [LAW:dataflow-not-control-flow] extractCommits runs every deploy; range selection lives in data (previousSha nullable).
@@ -220,5 +216,5 @@ async function renderDeployment(
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, renamedVersions: renames, widget, storageWrapper, sitemap };
+  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, renamedVersions, widget, storageWrapper, sitemap };
 }

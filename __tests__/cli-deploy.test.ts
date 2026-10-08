@@ -143,12 +143,12 @@ describe('cli deploy against a real remote', () => {
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed v2.0.0'))).toEqual([
-      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 1 slot(s) v1#rc -> v1-rc)\n',
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 1 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 1 slot(s) v1#rc -> v1~23rc (1 page(s) rebased))\n',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
-    expect(await shown('v1-rc/index.html')).toContain('<base href="/repo/v1-rc/">');
+    expect(await shown('v1~23rc/index.html')).toContain('<base href="/repo/v1~23rc/">');
     expect(await git(root, '--git-dir', remote, 'ls-tree', '--name-only', 'gh-pages')).not.toContain('v1#rc');
-    expect(JSON.parse(await shown('versions.json')).versions.map((v: { version: string }) => v.version)).toEqual(['v2.0.0', 'v1-rc']);
-    expect(await shown('_versions/index.html')).toContain('<a href="../v1-rc/">');
+    expect(JSON.parse(await shown('versions.json')).versions.map((v: { version: string }) => v.version)).toEqual(['v2.0.0', 'v1~23rc']);
+    expect(await shown('_versions/index.html')).toContain('<a href="../v1~23rc/">');
   });
 });

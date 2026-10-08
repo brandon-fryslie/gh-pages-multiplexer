@@ -7,7 +7,16 @@ import type { DeployConfig, DeploymentContext } from './types.js';
 // Everything a slot name may not contain. What remains (RFC 3986 unreserved characters plus `@` and `+`)
 // is a URL path segment as written: it needs no percent-encoding, no escaping in HTML, XML or JS
 // strings, and means nothing to String.prototype.replace, so every output path writes a slot raw.
-const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/g;
+const NON_SLOT_CHARS = /[^A-Za-z0-9._~@+-]/gu;
+
+/**
+ * `~XX` for each UTF-8 byte of `char`: percent-encoding with `~` as the escape character, so the
+ * escape is itself made of slot characters and a ref loses nothing (`v1#rc` -> `v1~23rc`,
+ * `日` -> `~E6~97~A5`). Git refs cannot contain `~`, so no ref's escape collides with another ref.
+ */
+function escapeSlotChar(char: string): string {
+  return [...new TextEncoder().encode(char)].map((byte) => `~${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
+}
 
 /**
  * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
@@ -29,10 +38,10 @@ export function sanitizeRef(ref: string): string {
   const segments = noControl.split('/').filter((seg) => seg !== '..' && seg.length > 0);
   const joined = segments.join('-');
 
-  // Replace every other non-slot character with a hyphen. A leading dot would make a hidden or
-  // relative (`.`) directory, so leading dots go with leading hyphens.
+  // Escape every other non-slot character. A leading dot would make a hidden or relative (`.`)
+  // directory, so leading dots go with leading hyphens.
   const safe = joined
-    .replace(NON_SLOT_CHARS, '-')
+    .replace(NON_SLOT_CHARS, escapeSlotChar)
     .replace(/-+/g, '-')
     .replace(/^[-.]+|-$/g, '');
 

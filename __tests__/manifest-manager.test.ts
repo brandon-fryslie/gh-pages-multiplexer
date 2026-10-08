@@ -146,13 +146,13 @@ describe('renameUnsafeSlots', () => {
   it('renames slots that predate the slot-name rule in place, keeping every other field', () => {
     const legacy = { ...entry('v1#rc'), ref: 'refs/tags/v1#rc', sha: 'def' };
     const { manifest, renames } = renameUnsafeSlots({ schema: 1, versions: [entry('v2.0.0'), legacy] });
-    expect(renames).toEqual([{ from: 'v1#rc', to: 'v1-rc' }]);
-    expect(manifest).toEqual({ schema: 1, versions: [entry('v2.0.0'), { ...legacy, version: 'v1-rc' }] });
+    expect(renames).toEqual([{ from: 'v1#rc', to: 'v1~23rc' }]);
+    expect(manifest).toEqual({ schema: 1, versions: [entry('v2.0.0'), { ...legacy, version: 'v1~23rc' }] });
   });
 
   it('throws naming both slots when a rename lands on a slot another entry holds', () => {
-    expect(() => renameUnsafeSlots({ schema: 2, versions: [entry('v1-rc'), entry('v1#rc')] })).toThrow(
-      /"v1-rc" and "v1#rc" both become slot "v1-rc"/,
+    expect(() => renameUnsafeSlots({ schema: 2, versions: [entry('v1~23rc'), entry('v1#rc')] })).toThrow(
+      /"v1~23rc" and "v1#rc" both become slot "v1~23rc"/,
     );
   });
 });
