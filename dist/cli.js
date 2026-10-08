@@ -32048,12 +32048,11 @@ function escapeSlotChar(char) {
  * The short name of a git ref: the branch or tag name with its well-known prefix stripped
  * (`refs/heads/feature/auth` -> `feature/auth`), and a PR merge ref named `pr-<N>`. Any other ref
  * passes through whole. ref-patterns match this name, and the slot is sanitized from it.
+ * One anchored match strips one prefix: a branch named `refs/pull/5/merge` stays that name rather than
+ * becoming `pr-5` and landing in PR #5's slot.
  */
 function refName(ref) {
-    return ref
-        .replace(/^refs\/tags\//, '')
-        .replace(/^refs\/heads\//, '')
-        .replace(/^refs\/pull\/(\d+)\/merge$/, 'pr-$1');
+    return ref.replace(/^refs\/(?:(?:heads|tags)\/(.+)|pull\/(\d+)\/merge)$/s, (_, name, pr) => name ?? `pr-${pr}`);
 }
 /**
  * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
@@ -32081,8 +32080,8 @@ function sanitizeRef(ref) {
     return ROOT_ENTRY_NAMES.has(safe.toLowerCase()) ? escapeSlotChar(safe[0]) + safe.slice(1) : safe;
 }
 /**
- * Test a ref name against a list of glob patterns. Empty list matches everything. Globs follow GitHub
- * workflow filter syntax: `*` stops at `/` and `**` crosses it, so `feature/*` matches `feature/auth`.
+ * Test a ref name against a list of picomatch globs. Empty list matches everything. `*` stops at `/`
+ * and `**` crosses it, so `feature/*` matches `feature/auth` but not `feature/auth/oauth`.
  */
 function matchesPatterns(name, patterns) {
     if (patterns.length === 0)
@@ -32107,7 +32106,8 @@ function resolveContext(config, cname = false) {
     //   `feature/auth` into `feature-auth` and `_versions` into `~5Fversions`, which no ref glob names.
     const name = refName(config.ref);
     if (!hasExplicitVersion && !matchesPatterns(name, config.refPatterns)) {
-        throw new Error(`Ref ${config.ref} (name ${name}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`);
+        throw new Error(`Ref ${config.ref} (name ${name}) does not match any deployment pattern: ${config.refPatterns.join(', ')}. ` +
+            'Patterns match the branch or tag name, or pr-<number>; `*` stops at `/` and `**` crosses it.');
     }
     const repoName = config.repo.includes('/') ? config.repo.split('/')[1] : config.repo;
     const isUserSite = /\.github\.io$/i.test(repoName);
@@ -34274,7 +34274,7 @@ Deploy a static site to a versioned subdirectory on a GitHub Pages branch.
 Options:
   --source-dir=<path>          Directory containing the built site (required)
   --target-branch=<name>       Target gh-pages branch (default: gh-pages)
-  --ref-patterns=<csv>         Comma-separated ref patterns to deploy
+  --ref-patterns=<csv>         Comma-separated globs matched against the branch or tag name, or pr-<number>
   --base-path-mode=<mode>      base-tag | rewrite | none (default: base-tag)
                                'none' = caller set base URL at build time; skip rewriting
   --base-path-prefix=<prefix>  Override auto-detected base path prefix

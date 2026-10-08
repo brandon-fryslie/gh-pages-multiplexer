@@ -7,7 +7,7 @@ import { ROOT_ENTRIES } from '../src/root-entries.js';
 const baseConfig = (overrides: Partial<DeployConfig> = {}): DeployConfig => ({
   sourceDir: 'dist',
   targetBranch: 'gh-pages',
-  refPatterns: ['*'],
+  refPatterns: [],
   basePathMode: 'base-tag',
   basePathPrefix: '',
   token: 'x',
@@ -152,6 +152,8 @@ describe('refName', () => {
     ['refs/tags/_versions', '_versions'],
     ['refs/pull/42/merge', 'pr-42'],
     ['refs/notes/commits', 'refs/notes/commits'],
+    ['refs/heads/refs/pull/5/merge', 'refs/pull/5/merge'],
+    ['refs/tags/refs/heads/main', 'refs/heads/main'],
   ])('%s -> %s', (ref, name) => {
     expect(refName(ref)).toBe(name);
   });

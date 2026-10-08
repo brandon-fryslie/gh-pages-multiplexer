@@ -26,12 +26,14 @@ function escapeSlotChar(char: string): string {
  * The short name of a git ref: the branch or tag name with its well-known prefix stripped
  * (`refs/heads/feature/auth` -> `feature/auth`), and a PR merge ref named `pr-<N>`. Any other ref
  * passes through whole. ref-patterns match this name, and the slot is sanitized from it.
+ * One anchored match strips one prefix: a branch named `refs/pull/5/merge` stays that name rather than
+ * becoming `pr-5` and landing in PR #5's slot.
  */
 export function refName(ref: string): string {
-  return ref
-    .replace(/^refs\/tags\//, '')
-    .replace(/^refs\/heads\//, '')
-    .replace(/^refs\/pull\/(\d+)\/merge$/, 'pr-$1');
+  return ref.replace(
+    /^refs\/(?:(?:heads|tags)\/(.+)|pull\/(\d+)\/merge)$/s,
+    (_, name: string | undefined, pr: string) => name ?? `pr-${pr}`
+  );
 }
 
 /**
@@ -64,8 +66,8 @@ export function sanitizeRef(ref: string): string {
 }
 
 /**
- * Test a ref name against a list of glob patterns. Empty list matches everything. Globs follow GitHub
- * workflow filter syntax: `*` stops at `/` and `**` crosses it, so `feature/*` matches `feature/auth`.
+ * Test a ref name against a list of picomatch globs. Empty list matches everything. `*` stops at `/`
+ * and `**` crosses it, so `feature/*` matches `feature/auth` but not `feature/auth/oauth`.
  */
 export function matchesPatterns(name: string, patterns: string[]): boolean {
   if (patterns.length === 0) return true;
@@ -92,7 +94,8 @@ export function resolveContext(config: DeployConfig, cname = false): DeploymentC
   const name = refName(config.ref);
   if (!hasExplicitVersion && !matchesPatterns(name, config.refPatterns)) {
     throw new Error(
-      `Ref ${config.ref} (name ${name}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`
+      `Ref ${config.ref} (name ${name}) does not match any deployment pattern: ${config.refPatterns.join(', ')}. ` +
+        'Patterns match the branch or tag name, or pr-<number>; `*` stops at `/` and `**` crosses it.'
     );
   }
 
