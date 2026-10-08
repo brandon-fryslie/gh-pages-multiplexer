@@ -94,12 +94,12 @@ describe('injectCanonicalIntoDir', () => {
   });
 
   it('returns 0 for a slot with no directory', async () => {
-    expect(await injectCanonicalIntoDir(path.join(dir, 'missing'), 'https://example.com/v1')).toBe(0);
+    expect(await injectCanonicalIntoDir(path.join(dir, 'missing'), 'https://example.com', 'v1')).toBe(0);
   });
 
   it('propagates fs errors other than a missing slot directory', async () => {
     await writeFile(path.join(dir, 'not-a-dir'), '');
-    await expect(injectCanonicalIntoDir(path.join(dir, 'not-a-dir'), 'https://example.com/v1')).rejects.toMatchObject({ code: 'ENOTDIR' });
+    await expect(injectCanonicalIntoDir(path.join(dir, 'not-a-dir'), 'https://example.com', 'v1')).rejects.toMatchObject({ code: 'ENOTDIR' });
   });
 });
 
