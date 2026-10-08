@@ -1,22 +1,17 @@
-// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
-//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
-// [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
+// [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
+//   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
+//   widget and the storage wrapper all find a slot's pages through it.
+// [LAW:no-defensive-null-guards] fs errors propagate; only a manifest slot with no directory reads as zero pages.
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
 import { PLACEMENTS, type Placement, type PlacementCounts } from './types.js';
 
-async function findHtmlFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...(await findHtmlFiles(full)));
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-      results.push(full);
-    }
-  }
-  return results;
+// Every *.html file below `dir`, which must exist.
+export async function findHtmlFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.html'))
+    .map((entry) => path.join(entry.parentPath, entry.name));
 }
 
 // A slot listed in versions.json can have no directory: git does not track empty directories, so a

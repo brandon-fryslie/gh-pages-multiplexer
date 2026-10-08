@@ -74,6 +74,11 @@ describe('findHtmlFilesRelative', () => {
   it('returns empty array for missing directory', async () => {
     expect(await findHtmlFilesRelative(path.join(dir, 'missing'))).toEqual([]);
   });
+
+  it('propagates fs errors other than a missing slot directory', async () => {
+    await writeFile(path.join(dir, 'not-a-dir'), '');
+    await expect(findHtmlFilesRelative(path.join(dir, 'not-a-dir'))).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
 });
 
 describe('renderSitemapXml', () => {

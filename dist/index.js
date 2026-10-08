@@ -37775,28 +37775,22 @@ function validateWidgetColor(raw) {
 /** What placing the current nav widget or storage wrapper did to one page. */
 const PLACEMENTS = ['inserted', 'refreshed', 'current'];
 
-// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
-//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
-// [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
-async function findHtmlFiles$2(dir) {
-    const results = [];
-    const entries = await promises.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-        const full = path__namespace$1.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles$2(full)));
-        }
-        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-            results.push(full);
-        }
-    }
-    return results;
+// [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
+//   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
+//   widget and the storage wrapper all find a slot's pages through it.
+// [LAW:no-defensive-null-guards] fs errors propagate; only a manifest slot with no directory reads as zero pages.
+// Every *.html file below `dir`, which must exist.
+async function findHtmlFiles(dir) {
+    const entries = await promises.readdir(dir, { recursive: true, withFileTypes: true });
+    return entries
+        .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.html'))
+        .map((entry) => path__namespace$1.join(entry.parentPath, entry.name));
 }
 // A slot listed in versions.json can have no directory: git does not track empty directories, so a
 // slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
 async function findSlotHtmlFiles(slotDir) {
     try {
-        return await findHtmlFiles$2(slotDir);
+        return await findHtmlFiles(slotDir);
     }
     catch (err) {
         if (err.code === 'ENOENT' && err.path === slotDir)
@@ -38362,29 +38356,12 @@ function latestNonPrSlot(manifest) {
     return entry ? entry.version : null;
 }
 /**
- * Walk `dir` and return absolute paths to every *.html file below it.
- * Empty directory or missing directory yields [].
+ * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
+ * (e.g. "docs/api.html"). A slot with no directory has no pages.
  */
-async function findHtmlFilesRelative(root) {
-    const out = [];
-    async function walk(dir, prefix) {
-        let entries;
-        try {
-            entries = await promises.readdir(dir, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const e of entries) {
-            const rel = prefix ? `${prefix}/${e.name}` : e.name;
-            if (e.isDirectory())
-                await walk(path$1.join(dir, e.name), rel);
-            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
-                out.push(rel);
-        }
-    }
-    await walk(root, '');
-    return out.sort();
+async function findHtmlFilesRelative(slotDir) {
+    const files = await findSlotHtmlFiles(slotDir);
+    return files.map((file) => path$1.relative(slotDir, file).split(path$1.sep).join('/')).sort();
 }
 /**
  * Render a sitemap.xml for the given set of relative URLs, rooted under a
@@ -38643,27 +38620,6 @@ const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
 const EXISTING_CANONICAL_BLOCK_RE = new RegExp(`${CANONICAL_MARKER.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*<link rel="canonical"[^>]*>`, 'g');
 // Detect user-authored canonical (any `<link rel="canonical"` not preceded by our marker).
 const USER_CANONICAL_RE = /<link\s+[^>]*rel=["']canonical["'][^>]*>/i;
-async function findHtmlFiles$1(dir) {
-    const out = [];
-    async function walk(d) {
-        let entries;
-        try {
-            entries = await promises.readdir(d, { withFileTypes: true });
-        }
-        catch {
-            return;
-        }
-        for (const e of entries) {
-            const full = path$1.join(d, e.name);
-            if (e.isDirectory())
-                await walk(full);
-            else if (e.isFile() && e.name.toLowerCase().endsWith('.html'))
-                out.push(full);
-        }
-    }
-    await walk(dir);
-    return out;
-}
 function buildCanonicalTag(url) {
     // Minimal HTML escape for attribute value (URLs rarely contain these, but be safe).
     const safe = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -38695,7 +38651,7 @@ function insertInHead(html, tag) {
  * Returns the count of files mutated.
  */
 async function injectCanonicalIntoDir(versionDir, canonicalBase) {
-    const htmlFiles = await findHtmlFiles$1(versionDir);
+    const htmlFiles = await findSlotHtmlFiles(versionDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${versionDir}, no canonical injection needed`);
         return 0;
@@ -38726,7 +38682,7 @@ async function injectCanonicalIntoDir(versionDir, canonicalBase) {
  * Returns the count of files newly injected.
  */
 async function injectNoindexIntoDir(prDir) {
-    const htmlFiles = await findHtmlFiles$1(prDir);
+    const htmlFiles = await findSlotHtmlFiles(prDir);
     if (htmlFiles.length === 0) {
         info(`0 HTML files in ${prDir}, no noindex injection needed`);
         return 0;
@@ -39356,6 +39312,7 @@ async function placeContent(workdir, sourceDir, context, basePathMode) {
     //   the identity — `none` is an explicit contract from the caller that their build already
     //   emitted correct URLs for the final base path, so rewriting would corrupt what works.
     const transform = selectTransform(basePathMode);
+    // cp just created target, so it must exist: a missing one fails loudly.
     const htmlFiles = await findHtmlFiles(target);
     for (const file of htmlFiles) {
         const html = await promises.readFile(file, 'utf8');
@@ -39374,20 +39331,6 @@ function selectTransform(mode) {
     }
     // mode === 'none' — identity transform, documented no-op.
     return (html) => html;
-}
-async function findHtmlFiles(dir) {
-    const results = [];
-    const entries = await promises.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-        const full = path$1.join(dir, entry.name);
-        if (entry.isDirectory()) {
-            results.push(...(await findHtmlFiles(full)));
-        }
-        else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-            results.push(full);
-        }
-    }
-    return results;
 }
 
 // [LAW:single-enforcer] This module is the sole place that shells out to `git log`.
