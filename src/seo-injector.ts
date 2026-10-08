@@ -8,7 +8,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
-import { findHtmlFilesRelative, findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import { findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import type { PageCopies, SitemapCoverage, SlotPages } from './types.js';
 
 export const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
 export const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
@@ -50,38 +51,60 @@ function insertInHead(html: string, tag: string): string {
 }
 
 /**
- * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
+ * Group the pages of the non-PR versions, given newest first, by page path. Each path lists every
+ * version that has it, newest first, so its canonical copy is `versions[0]`: the newest version that
+ * has the page. A page every newer version dropped is thereby canonical in the newest version that
+ * kept it, never pointed at a URL that does not exist and never one of several self-declared copies.
+ */
+export function groupPageCopies(newestFirst: readonly SlotPages[]): PageCopies[] {
+  const copies = new Map<string, [string, ...string[]]>();
+  for (const { slot, pages } of newestFirst) {
+    for (const page of pages) {
+      const versions = copies.get(page);
+      if (versions) versions.push(slot);
+      else copies.set(page, [slot]);
+    }
+  }
+  return [...copies].map(([page, versions]) => ({ page, versions }));
+}
+
+/** What the canonical tags and sitemap.xml say about `copies`, whose newest non-PR version is `latest`. */
+export function sitemapCoverage(latest: string | null, copies: readonly PageCopies[]): SitemapCoverage {
+  return {
+    latest,
+    urls: copies.length,
+    fromOlderVersions: copies.filter(({ versions }) => versions[0] !== latest).length,
+  };
+}
+
+/**
+ * Inject or update the canonical tag on every copy of every page in `copies` (under `workdir`),
+ * pointing at the page's canonical copy under `siteBase`. Idempotent: existing gh-pm canonicals are
  * replaced; user-authored canonicals are respected (skipped).
  *
  * Returns the count of files mutated.
  */
-export async function injectCanonicalIntoDir(
-  versionDir: string,
+export async function injectCanonicalTags(
+  workdir: string,
   siteBase: string,
-  canonicalSlot: string,
+  copies: readonly PageCopies[],
 ): Promise<number> {
-  const relPaths = await findHtmlFilesRelative(versionDir);
-  if (relPaths.length === 0) {
-    core.info(`0 HTML files in ${versionDir}, no canonical injection needed`);
-    return 0;
-  }
-
   let count = 0;
-  for (const rel of relPaths) {
-    const file = path.join(versionDir, rel);
-    const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
+  for (const { page, versions } of copies) {
+    const tag = buildCanonicalTag(slotPageUrl(siteBase, versions[0], page));
+    for (const slot of versions) {
+      const file = path.join(workdir, slot, page);
+      const original = await readFile(file, 'utf8');
+      // Remove any of our previously-injected canonicals (handles update-on-latest-change).
+      const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
+      // If the user authored their own canonical, respect it — don't inject ours.
+      const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
+      const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
 
-    const original = await readFile(file, 'utf8');
-    // Remove any of our previously-injected canonicals (handles update-on-latest-change).
-    const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
-    // If the user authored their own canonical, respect it — don't inject ours.
-    const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
-    const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
-
-    if (next !== original) {
-      await writeFile(file, next, 'utf8');
-      count++;
+      if (next !== original) {
+        await writeFile(file, next, 'utf8');
+        count++;
+      }
     }
   }
   return count;

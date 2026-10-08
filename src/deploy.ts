@@ -25,11 +25,13 @@ import {
   writeStatsHtml,
   applySeoTags,
   placeStorageWrapperInSlots,
+  readSlotPages,
 } from './branch-manager.js';
 import { readManifest, renameUnsafeSlots, updateManifest, removeVersions, writeManifest } from './manifest-manager.js';
 import { placeContent } from './content-placer.js';
 import { extractCommits } from './metadata-extractor.js';
-import { latestNonPrSlot } from './sitemap-generator.js';
+import { latestNonPrSlot, nonPrSlots } from './sitemap-generator.js';
+import { groupPageCopies, sitemapCoverage } from './seo-injector.js';
 
 const PR_VERSION_RE = /^pr-\d+$/;
 
@@ -87,7 +89,8 @@ export function deploySummary(result: DeployResult): string {
   return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
     `nav widget ${placed(result.widget)}; ` +
     `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
-    `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'}; ` +
+    `sitemap ${result.sitemap.urls} URL(s): ${result.sitemap.urls - result.sitemap.fromOlderVersions} from ` +
+    `${result.sitemap.latest ?? 'no non-PR version'}, ${result.sitemap.fromOlderVersions} from older versions; ` +
     `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to} (${r.pages} page(s) rebased)`).join(',')})`;
 }
 
@@ -193,26 +196,25 @@ async function renderDeployment(
   );
   const storageWrapper = { deployedSlot, pages: storageWrapperPages };
 
-  // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
-  // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+  // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions, each pointing at the
+  // newest non-PR copy of its page; noindex on the current PR directory (if this deploy is a PR).
+  // [LAW:one-source-of-truth] The canonical tags and sitemap.xml both read pageCopies.
   // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
   //   null PR slot = zero noindex injections. No guarded skips.
   const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
   const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
   const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
-  const latestSlot = latestNonPrSlot(cleanedManifest);
-  const nonPrSlots = cleanedManifest.versions
-    .filter((v) => !PR_VERSION_RE.test(v.version))
-    .map((v) => v.version);
+  const pageCopies = groupPageCopies(await readSlotPages(workdir, nonPrSlots(cleanedManifest)));
   const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
-  const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
+  const seoCounts = await applySeoTags(workdir, pageCopies, siteBase, currentPrSlot);
   core.info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
 
   // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
   // Written at the worktree root. Stats dashboard lives under _versions/.
   // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
   await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
-  const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+  await writeSitemapXml(workdir, pageCopies, siteBase, context.timestamp);
+  const sitemap = sitemapCoverage(latestNonPrSlot(cleanedManifest), pageCopies);
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 

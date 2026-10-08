@@ -32961,43 +32961,36 @@ function renderRobotsTxt(manifest, siteRoot) {
 }
 
 const PR_VERSION_RE$1 = /^pr-\d+$/;
+/** The non-PR version slots of `manifest`, newest first (the manifest's order). */
+function nonPrSlots(manifest) {
+    return manifest.versions.filter((v) => !PR_VERSION_RE$1.test(v.version)).map((v) => v.version);
+}
 /**
  * Find the most recently deployed non-PR version slot. Returns null when no
  * such version exists (empty manifest or all-PR manifest).
  */
 function latestNonPrSlot(manifest) {
-    const entry = manifest.versions.find((v) => !PR_VERSION_RE$1.test(v.version));
-    return entry ? entry.version : null;
+    return nonPrSlots(manifest)[0] ?? null;
 }
 /**
- * Render a sitemap.xml for the given set of relative URLs, rooted under a
- * version slot within a site. The `loc` URLs are absolute and percent-encoded.
+ * Render a sitemap.xml listing the canonical copy of every page in `copies`. The `loc` URLs are
+ * absolute and percent-encoded.
  *
  * baseUrl: site base (e.g., "https://example.com" or "https://owner.github.io/repo")
- * slot: version directory name (e.g., "v2.0.0")
- * htmlRelPaths: relative HTML paths under the slot (e.g., ["index.html", "docs/api.html"])
+ * copies: page paths with the versions that have them, canonical copy first
  * lastmod: ISO 8601 date string (typically the deploy timestamp)
  */
-function renderSitemapXml(baseUrl, slot, htmlRelPaths, lastmod) {
+function renderSitemapXml(baseUrl, copies, lastmod) {
     const dateOnly = lastmod.slice(0, 10); // YYYY-MM-DD per sitemap spec
     const header = '<?xml version="1.0" encoding="UTF-8"?>\n' +
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
-    const body = htmlRelPaths
-        .map((rel) => {
-        const loc = slotPageUrl(baseUrl, slot, rel);
+    const body = copies
+        .map(({ page, versions }) => {
+        const loc = slotPageUrl(baseUrl, versions[0], page);
         return `  <url>\n    <loc>${escapeHtml(loc)}</loc>\n    <lastmod>${escapeHtml(dateOnly)}</lastmod>\n  </url>\n`;
     })
         .join('');
     return header + body + '</urlset>\n';
-}
-/**
- * Empty sitemap (valid but with no URLs). Emitted when no non-PR version
- * exists — still a valid sitemap, just zero entries.
- */
-function renderEmptySitemap() {
-    return ('<?xml version="1.0" encoding="UTF-8"?>\n' +
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
-        '</urlset>\n');
 }
 
 /**
@@ -33250,31 +33243,55 @@ function insertInHead(html, tag) {
     return `<head>${tag}</head>` + html;
 }
 /**
- * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
+ * Group the pages of the non-PR versions, given newest first, by page path. Each path lists every
+ * version that has it, newest first, so its canonical copy is `versions[0]`: the newest version that
+ * has the page. A page every newer version dropped is thereby canonical in the newest version that
+ * kept it, never pointed at a URL that does not exist and never one of several self-declared copies.
+ */
+function groupPageCopies(newestFirst) {
+    const copies = new Map();
+    for (const { slot, pages } of newestFirst) {
+        for (const page of pages) {
+            const versions = copies.get(page);
+            if (versions)
+                versions.push(slot);
+            else
+                copies.set(page, [slot]);
+        }
+    }
+    return [...copies].map(([page, versions]) => ({ page, versions }));
+}
+/** What the canonical tags and sitemap.xml say about `copies`, whose newest non-PR version is `latest`. */
+function sitemapCoverage(latest, copies) {
+    return {
+        latest,
+        urls: copies.length,
+        fromOlderVersions: copies.filter(({ versions }) => versions[0] !== latest).length,
+    };
+}
+/**
+ * Inject or update the canonical tag on every copy of every page in `copies` (under `workdir`),
+ * pointing at the page's canonical copy under `siteBase`. Idempotent: existing gh-pm canonicals are
  * replaced; user-authored canonicals are respected (skipped).
  *
  * Returns the count of files mutated.
  */
-async function injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot) {
-    const relPaths = await findHtmlFilesRelative(versionDir);
-    if (relPaths.length === 0) {
-        info(`0 HTML files in ${versionDir}, no canonical injection needed`);
-        return 0;
-    }
+async function injectCanonicalTags(workdir, siteBase, copies) {
     let count = 0;
-    for (const rel of relPaths) {
-        const file = path$1.join(versionDir, rel);
-        const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
-        const original = await promises.readFile(file, 'utf8');
-        // Remove any of our previously-injected canonicals (handles update-on-latest-change).
-        const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
-        // If the user authored their own canonical, respect it — don't inject ours.
-        const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
-        const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
-        if (next !== original) {
-            await promises.writeFile(file, next, 'utf8');
-            count++;
+    for (const { page, versions } of copies) {
+        const tag = buildCanonicalTag(slotPageUrl(siteBase, versions[0], page));
+        for (const slot of versions) {
+            const file = path$1.join(workdir, slot, page);
+            const original = await promises.readFile(file, 'utf8');
+            // Remove any of our previously-injected canonicals (handles update-on-latest-change).
+            const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
+            // If the user authored their own canonical, respect it — don't inject ours.
+            const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
+            const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
+            if (next !== original) {
+                await promises.writeFile(file, next, 'utf8');
+                count++;
+            }
         }
     }
     return count;
@@ -33765,23 +33782,17 @@ async function writeRobotsTxt(workdir, manifest, siteRoot) {
     await promises.writeFile(path__namespace$1.join(workdir, 'robots.txt'), txt, 'utf8');
 }
 /**
- * Write sitemap.xml at the worktree root. URLs point at the latest non-PR
- * version's HTML files. If no non-PR version exists, an empty urlset is emitted.
+ * The pages of each slot in `slots`, in the given order. A slot with no directory has no pages.
  */
-async function writeSitemapXml(workdir, manifest, baseUrl, lastmod) {
-    const slot = latestNonPrSlot(manifest);
-    let xml;
-    let urls = 0;
-    if (slot === null) {
-        xml = renderEmptySitemap();
-    }
-    else {
-        const relPaths = await findHtmlFilesRelative(path__namespace$1.join(workdir, slot));
-        xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
-        urls = relPaths.length;
-    }
-    await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), xml, 'utf8');
-    return { slot, urls };
+async function readSlotPages(workdir, slots) {
+    return Promise.all(slots.map(async (slot) => ({ slot, pages: await findHtmlFilesRelative(path__namespace$1.join(workdir, slot)) })));
+}
+/**
+ * Write sitemap.xml at the worktree root, listing the canonical copy of every page in `copies`.
+ * No non-PR version means no copies and an empty urlset.
+ */
+async function writeSitemapXml(workdir, copies, baseUrl, lastmod) {
+    await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
 }
 /**
  * Write _health.json at the worktree root. Pure projection of the manifest +
@@ -33802,25 +33813,14 @@ async function writeStatsHtml(workdir, repoMeta) {
     await promises.writeFile(path__namespace$1.join(versionsDir, 'stats.html'), html, 'utf8');
 }
 /**
- * Inject/update canonical URLs into every non-PR version directory, pointing at
- * the latest non-PR version's equivalent path. For PR directories, inject
- * noindex instead. `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
- * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
- *
- * Data-driven: caller decides which directories to process via `nonPrSlots`
- * and which PR directory to noindex via `currentPrSlot` (null when current
- * deploy is non-PR).
+ * Inject/update canonical URLs on every copy of every page in `copies`, pointing at the page's
+ * canonical copy (see groupPageCopies). For the current PR directory, inject noindex instead.
+ * `siteBase` is the absolute site URL (e.g., "https://example.com/repo"); `currentPrSlot` is null
+ * when the current deploy is non-PR.
  */
-async function applySeoTags(workdir, nonPrSlots, siteBase, canonicalSlot, currentPrSlot) {
-    let canonicalCount = 0;
-    // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
-    //   should be empty (caller ensures); loop trivially finishes with 0.
-    if (canonicalSlot !== null) {
-        for (const slot of nonPrSlots) {
-            const versionDir = path__namespace$1.join(workdir, slot);
-            canonicalCount += await injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot);
-        }
-    }
+async function applySeoTags(workdir, copies, siteBase, currentPrSlot) {
+    // [LAW:dataflow-not-control-flow] No non-PR version means no copies; the walk finishes with 0.
+    const canonicalCount = await injectCanonicalTags(workdir, siteBase, copies);
     let noindexCount = 0;
     if (currentPrSlot !== null) {
         const prDir = path__namespace$1.join(workdir, currentPrSlot);
@@ -34131,7 +34131,8 @@ function deploySummary(result) {
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
         `nav widget ${placed(result.widget)}; ` +
         `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
-        `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'}; ` +
+        `sitemap ${result.sitemap.urls} URL(s): ${result.sitemap.urls - result.sitemap.fromOlderVersions} from ` +
+        `${result.sitemap.latest ?? 'no non-PR version'}, ${result.sitemap.fromOlderVersions} from older versions; ` +
         `renamed ${result.renamedVersions.length} slot(s)${result.renamedVersions.map((r) => ` ${r.from} -> ${r.to} (${r.pages} page(s) rebased)`).join(',')})`;
 }
 /**
@@ -34205,25 +34206,24 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
         coverage: v.version === context.versionSlot ? deployedSlot : 'wrapped-pages',
     })));
     const storageWrapper = { deployedSlot, pages: storageWrapperPages };
-    // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
-    // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
+    // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions, each pointing at the
+    // newest non-PR copy of its page; noindex on the current PR directory (if this deploy is a PR).
+    // [LAW:one-source-of-truth] The canonical tags and sitemap.xml both read pageCopies.
     // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.
     //   null PR slot = zero noindex injections. No guarded skips.
     const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
     const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
     const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
-    const latestSlot = latestNonPrSlot(cleanedManifest);
-    const nonPrSlots = cleanedManifest.versions
-        .filter((v) => !PR_VERSION_RE.test(v.version))
-        .map((v) => v.version);
+    const pageCopies = groupPageCopies(await readSlotPages(workdir, nonPrSlots(cleanedManifest)));
     const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
-    const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
+    const seoCounts = await applySeoTags(workdir, pageCopies, siteBase, currentPrSlot);
     info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
     // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
     // Written at the worktree root. Stats dashboard lives under _versions/.
     // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
     await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
-    const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+    await writeSitemapXml(workdir, pageCopies, siteBase, context.timestamp);
+    const sitemap = sitemapCoverage(latestNonPrSlot(cleanedManifest), pageCopies);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
     return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, renamedVersions, widget, storageWrapper, sitemap };

@@ -131,7 +131,7 @@ describe('concurrent deploys', () => {
   it('two deploys built on the same tip both land, and derived files match the final manifest', async () => {
     const seed = await deploy(await configFor('v0.9.0'), await sourceClone('seed'));
     expect(seed).toMatchObject({
-      outcome: 'pushed', attempts: 1, widget: { inserted: 1, refreshed: 0, current: 0 }, sitemap: { slot: 'v0.9.0', urls: 1 },
+      outcome: 'pushed', attempts: 1, widget: { inserted: 1, refreshed: 0, current: 0 }, sitemap: { latest: 'v0.9.0', urls: 1, fromOlderVersions: 0 },
     });
 
     const [a, b] = [await sourceClone('a'), await sourceClone('b')];

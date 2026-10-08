@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   latestNonPrSlot,
   renderSitemapXml,
-  renderEmptySitemap,
 } from '../src/sitemap-generator.js';
 import type { Manifest, ManifestEntry } from '../src/types.js';
 
@@ -39,8 +38,7 @@ describe('renderSitemapXml', () => {
   it('emits valid sitemap XML with URLs under the slot', () => {
     const xml = renderSitemapXml(
       'https://example.com',
-      'v1.0.0',
-      ['index.html', 'docs/api.html'],
+      [{ page: 'index.html', versions: ['v1.0.0'] }, { page: 'docs/api.html', versions: ['v1.0.0'] }],
       '2026-04-06T12:00:00Z',
     );
     expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
@@ -52,8 +50,7 @@ describe('renderSitemapXml', () => {
   it('percent-encodes page names in <loc>; the slot name is URL-safe as written', () => {
     const xml = renderSitemapXml(
       'https://example.com/repo',
-      'v1-beta',
-      ['docs/my page.html', 'faq#1.html', 'a&b.html'],
+      ['docs/my page.html', 'faq#1.html', 'a&b.html'].map((page) => ({ page, versions: ['v1-beta'] as [string] })),
       '2026-04-06T12:00:00Z',
     );
     expect(xml).toContain('<loc>https://example.com/repo/v1-beta/docs/my%20page.html</loc>');
@@ -61,22 +58,20 @@ describe('renderSitemapXml', () => {
     expect(xml).toContain('<loc>https://example.com/repo/v1-beta/a%26b.html</loc>');
   });
 
-  it('emits empty urlset when no HTML files provided', () => {
-    const xml = renderSitemapXml('https://example.com', 'v1.0.0', [], '2026-04-06T12:00:00Z');
+  it('lists only the canonical copy of a page several versions have', () => {
+    const xml = renderSitemapXml('https://example.com', [{ page: 'old.html', versions: ['v1.1', 'v1.0'] }], '2026-04-06T12:00:00Z');
+    expect(xml).toContain('<loc>https://example.com/v1.1/old.html</loc>');
+    expect(xml).not.toContain('/v1.0/');
+  });
+
+  it('emits empty urlset when there are no pages', () => {
+    const xml = renderSitemapXml('https://example.com', [], '2026-04-06T12:00:00Z');
     expect(xml).toContain('<urlset');
     expect(xml).not.toContain('<url>');
   });
 
   it('XML-escapes the site base', () => {
-    const xml = renderSitemapXml('https://example.com/a&b', 'v1', ['index.html'], '2026-04-06T00:00:00Z');
+    const xml = renderSitemapXml('https://example.com/a&b', [{ page: 'index.html', versions: ['v1'] }], '2026-04-06T00:00:00Z');
     expect(xml).toContain('<loc>https://example.com/a&amp;b/v1/index.html</loc>');
-  });
-});
-
-describe('renderEmptySitemap', () => {
-  it('produces a valid empty urlset', () => {
-    const xml = renderEmptySitemap();
-    expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"');
-    expect(xml).not.toContain('<url>');
   });
 });
