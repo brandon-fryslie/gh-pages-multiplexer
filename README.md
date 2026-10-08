@@ -291,7 +291,7 @@ Schema `1` entries (from older deployments) are still readable — the tool auto
 
 Every deployed HTML page gets a small floating button in the bottom-right corner. Clicking it opens a panel listing all deployed versions, with a "← Index" link back to the root index page.
 
-The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches `../versions.json` lazily on first open. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
+The widget is injected as a single `<script>` tag before `</body>`, wraps everything in a Shadow DOM (`mode: 'open'`, `:host { all: initial }`), and fetches `../versions.json` lazily on first open. Every deploy re-renders that tag into every version listed in `versions.json`, so pages deployed by an older release of this action pick up the current widget — and the current widget inputs — on the next deploy of any version. **It cannot be broken by host-page CSS** — not even aggressive resets with `color: red !important` on everything.
 
 To opt out: don't use this tool. There's no configuration knob to disable injection in v1 — the widget is the point.
 
@@ -340,7 +340,7 @@ withWorktree            (fetch gh-pages tip, create worktree)
     ↓
 placeContent            (rsync source-dir → workdir/versionSlot/)
     ↓
-injectWidget            (walk *.html, insert script tag before </body>)
+injectWidget            (walk *.html of every version, place the current script tag before </body>)
     ↓
 renderIndexHtml         (regenerate root index.html from manifest)
     ↓

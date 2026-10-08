@@ -173,7 +173,7 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv): Promise<numb
       dir: process.cwd(),
       remote: githubRemote(config.token, config.repo),
     });
-    process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s))\n`);
+    process.stdout.write(`Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); nav widget ${result.widget.inserted} inserted, ${result.widget.refreshed} refreshed, ${result.widget.current} current)\n`);
     return 0;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -22,7 +22,14 @@ beforeEach(() => {
     return true;
   });
   vi.mocked(deploy).mockReset();
-  vi.mocked(deploy).mockResolvedValue({ version: 'v1.0.0', url: 'https://owner.github.io/name/v1.0.0/' });
+  vi.mocked(deploy).mockResolvedValue({
+    version: 'v1.0.0',
+    url: 'https://owner.github.io/name/v1.0.0/',
+    removedVersions: [],
+    outcome: 'pushed',
+    attempts: 1,
+    widget: { inserted: 1, refreshed: 0, current: 0 },
+  });
 });
 
 afterEach(() => {

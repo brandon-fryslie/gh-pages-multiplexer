@@ -1,12 +1,13 @@
 // [LAW:one-source-of-truth] WIDGET_MARKER is the sole identifier for "this file already has the widget."
 //   The marker is part of the script template, so generation and detection share one constant.
+//   The template is the one source of the widget: every page's copy is re-derived from it on every deploy.
 // [LAW:single-enforcer] This module is the only place that knows the widget script template,
 //   the marker, and the html-injection rules. branch-manager.ts only calls the exported functions.
 // [LAW:dataflow-not-control-flow] injectWidgetIntoHtmlFiles always runs the same walk + per-file
 //   pipeline. Empty html list returns 0 from data (the array is empty), not from a guarded skip.
 //   The </body> / </html> / append fallback is data-driven *position* selection -- every html file
-//   gets exactly one insertion call. The idempotency gate is a data-driven content selection
-//   (already-injected => content unchanged), not a guarded skip of the operation.
+//   gets exactly one placement. A page already carrying a widget block has that block replaced,
+//   so placing the current widget twice leaves the file byte-identical.
 // [LAW:no-defensive-null-guards] fs errors propagate; no try/catch swallows. No || true.
 
 import * as core from '@actions/core';
@@ -18,6 +19,7 @@ import {
   DEFAULT_WIDGET_POSITION,
   DEFAULT_WIDGET_COLOR,
 } from './widget-config.js';
+import type { WidgetPlacement, WidgetPlacementCounts } from './types.js';
 
 export const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 
@@ -506,11 +508,29 @@ function insertScript(html: string, scriptTag: string, filePath: string): string
   return html + scriptTag;
 }
 
+// Every widget block this action has ever emitted opens with WIDGET_OPEN and ends at the first
+// </script> after it: getWidgetScriptTag escapes every `</` in the values it inlines (T-04-01).
+const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
+const SCRIPT_CLOSE = '</script>';
+
+export function emptyPlacementCounts(): WidgetPlacementCounts {
+  return { inserted: 0, refreshed: 0, current: 0 };
+}
+
+function placeWidget(html: string, scriptTag: string, filePath: string): { html: string; placement: WidgetPlacement } {
+  const start = html.indexOf(WIDGET_OPEN);
+  if (start === -1) return { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
+  const close = html.indexOf(SCRIPT_CLOSE, start);
+  if (close === -1) throw new Error(`${filePath}: nav widget block has no closing ${SCRIPT_CLOSE}`);
+  const placed = html.slice(0, start) + scriptTag + html.slice(close + SCRIPT_CLOSE.length);
+  return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
+}
+
 /**
- * Walks versionDir recursively, injects the widget script tag into every *.html file.
- * Returns the count of files newly injected (already-injected files contribute 0).
+ * Walks versionDir recursively and places the current widget in every *.html file: inserted where
+ * the page has none, replacing the block where an earlier deploy left one. Files whose block is
+ * already current are not rewritten.
  *
- * Idempotent (D-12): files already containing WIDGET_MARKER are byte-identical after.
  * Non-html files are never touched (D-13).
  * Zero-html case is a no-op success with an info log (D-17).
  * fs errors propagate -- no swallowed catches (D-16).
@@ -518,27 +538,23 @@ function insertScript(html: string, scriptTag: string, filePath: string): string
 export async function injectWidgetIntoHtmlFiles(
   versionDir: string,
   opts: WidgetInjectionOpts,
-): Promise<number> {
+): Promise<WidgetPlacementCounts> {
   const scriptTag = getWidgetScriptTag(opts);
   const htmlFiles = await findHtmlFiles(versionDir);
+  const counts = emptyPlacementCounts();
 
   if (htmlFiles.length === 0) {
-    // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> 0,
+    // [LAW:dataflow-not-control-flow] Data-driven no-op (D-17): empty list -> zero counts,
     // not a guarded skip. The info log is the documented happy-path observable.
     core.info(`0 HTML files in ${versionDir}, no widget injection needed`);
-    return 0;
+    return counts;
   }
 
-  let count = 0;
   for (const file of htmlFiles) {
     const original = await readFile(file, 'utf8');
-    const alreadyInjected = original.includes(WIDGET_MARKER);
-    // Data-driven content selection: marked -> unchanged; unmarked -> inserted.
-    const injected = alreadyInjected ? original : insertScript(original, scriptTag, file);
-    if (!alreadyInjected) {
-      await writeFile(file, injected, 'utf8');
-      count++;
-    }
+    const { html, placement } = placeWidget(original, scriptTag, file);
+    if (placement !== 'current') await writeFile(file, html, 'utf8');
+    counts[placement]++;
   }
-  return count;
+  return counts;
 }
