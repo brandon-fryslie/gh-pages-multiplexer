@@ -276,6 +276,24 @@ describe('concurrent deploys', () => {
     expect((await remoteFile('v0.9.0/index.html')).match(widgetBlock)?.[0]).toBe(current.match(widgetBlock)?.[0]);
   });
 
+  it('deploying a slot that is also being cleaned up publishes it as a manifest entry', async () => {
+    for (const slot of ['v0.9.0', 'pr-5', 'pr-6']) await deploy(await configFor(slot), await sourceClone(slot));
+
+    // A run for PR 5 that starts after PR 5 closed: its own slot is in the cleanup set.
+    const config = { ...(await configFor('pr-5')), sourceDir: await siteDir('pr-5-late'), cleanupVersions: ['pr-5', 'pr-6'] };
+    const result = await deploy(config, await sourceClone('late'));
+
+    expect(result.removedVersions).toEqual(['pr-6']);
+    expect(await remoteFile('pr-5/index.html')).toContain('pr-5-late');
+    const manifest = await expectDerivedFilesMatchManifest();
+    expect(manifest.versions.map((v) => v.version)).toEqual(['pr-5', 'v0.9.0']);
+    const slotDirs = (await git(root, '--git-dir', remote, 'ls-tree', '-d', '--name-only', TARGET))
+      .split('\n')
+      .filter((dir) => dir !== '_versions');
+    expect(slotDirs.sort()).toEqual(['pr-5', 'v0.9.0']);
+    expect(result.widget).toEqual({ inserted: 1, refreshed: 0, current: 1 });
+  });
+
   it('redeploying identical content is a successful no-op', async () => {
     const config = await configFor('v1.0.0');
     // Pin the clock: the manifest entry and health record carry the deploy timestamp.
