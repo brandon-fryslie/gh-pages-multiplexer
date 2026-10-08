@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # [LAW:one-source-of-truth] src/ is the source; dist/ is its committed build output,
 # shipped because action.yml runs dist/index.js. This rebuilds and fails when the
-# committed copy differs from what src/ and the lockfile produce.
+# committed copy differs from what src/ and the lockfile produce. dist/ is cleared first so a
+# tracked file the build no longer produces shows up as deleted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+rm -rf dist
 pnpm run build
 
 stale=$(git status --porcelain --untracked-files=all -- dist)

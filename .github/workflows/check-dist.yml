@@ -7,15 +7,24 @@ on:
   push:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   check-dist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
+      # [LAW:one-source-of-truth] Build on the Node major the Action runs on: action.yml runs.using.
+      - id: runtime
+        run: |
+          major=$(sed -n "s/^ *using: *'node\([0-9]*\)'.*/\1/p" action.yml)
+          [[ -n "$major" ]] || { echo "ERROR: no node runtime in action.yml runs.using" >&2; exit 1; }
+          echo "node=$major" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v5
         with:
-          node-version-file: package.json
+          node-version: ${{ steps.runtime.outputs.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check:dist

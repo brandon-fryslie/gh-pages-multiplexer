@@ -11,11 +11,21 @@ const plugins = () => [
   typescript({ tsconfig: './tsconfig.json', outDir: './dist', declaration: false }),
 ];
 
+// [LAW:one-source-of-truth] The root package.json is "type": "module", so node would load the
+// CJS bundles as ESM. dist/package.json scopes dist/ back to commonjs; the build emits it so
+// every file in dist/ is build output and check:dist covers it.
+const commonjsScope = {
+  name: 'commonjs-scope',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'package.json', source: '{\n  "type": "commonjs"\n}\n' });
+  },
+};
+
 export default [
   {
     input: 'src/index.ts',
     output: { file: 'dist/index.js', format: 'cjs', sourcemap: false },
-    plugins: plugins(),
+    plugins: [...plugins(), commonjsScope],
   },
   {
     input: 'src/cli.ts',
