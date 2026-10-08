@@ -32589,9 +32589,9 @@ function getWidgetScriptTag(opts) {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
+  // The multiplexed site this page belongs to: the path above its version slot, at any depth.
+  var SITE = location.pathname.split('/' + CURRENT + '/')[0];
   if (customElements.get('gh-pm-nav')) return;
-  var GhPmNav = function(){};
-  GhPmNav.prototype = Object.create(HTMLElement.prototype);
   function defineEl(){
     class GhPmNav extends HTMLElement {
       constructor(){
@@ -32704,11 +32704,45 @@ function getWidgetScriptTag(opts) {
         this._rows.innerHTML = html;
       }
     }
+    GhPmNav.site = SITE;
     customElements.define('gh-pm-nav', GhPmNav);
   }
   defineEl();
-  var el = document.createElement('gh-pm-nav');
-  (document.body || document.documentElement).appendChild(el);
+  // One drawer per site per visible stack of pages. A deployed page framed by a same-origin page
+  // already running this site's switcher (a live demo in an iframe) leaves the drawer to it.
+  // Framed by anything else (an embedding portal, an editor preview, another project on the
+  // shared <user>.github.io origin), it is the visitor's only switcher for this site and mounts.
+  var ancestors = sameOriginAncestorDocs();
+  // [LAW:no-ambient-temporal-coupling] An ancestor registers gh-pm-nav while it parses, so its
+  // registry is read only after its DOMContentLoaded; before that, absence would be a race.
+  Promise.all(ancestors.map(function(doc){
+    return parsed(doc).then(function(){
+      var def = doc.defaultView.customElements.get('gh-pm-nav');
+      return def !== undefined && def.site === SITE;
+    });
+  })).then(function(runsSite){
+    var owner = ancestors[runsSite.indexOf(true)];
+    console.debug('gh-pm-nav', {
+      site: SITE,
+      sameOriginAncestors: ancestors.length,
+      mounted: !owner,
+      yieldedTo: owner ? owner.URL : null
+    });
+    if (owner) return;
+    (document.body || document.documentElement).appendChild(document.createElement('gh-pm-nav'));
+  });
+  // frameElement is the containing element only when its document is same-origin (null at the
+  // top and across an origin boundary), and unlike window.parent no host script can replace it.
+  function sameOriginAncestorDocs(){
+    var docs = [];
+    for (var f = window.frameElement; f; f = f.ownerDocument.defaultView.frameElement) docs.push(f.ownerDocument);
+    return docs;
+  }
+  function parsed(doc){
+    return doc.readyState !== 'loading' ? Promise.resolve() : new Promise(function(resolve){
+      doc.addEventListener('DOMContentLoaded', resolve, { once: true });
+    });
+  }
 })();
 </script>`;
 }
