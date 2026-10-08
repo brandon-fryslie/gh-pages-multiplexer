@@ -65,7 +65,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
       return {
         version: rendered.context.versionSlot,
         url: rendered.url,
-        removedVersions: config.cleanupVersions,
+        removedVersions: rendered.removedVersions,
         outcome: published.kind,
         attempts: attempt,
         widget: rendered.widget,
@@ -95,7 +95,13 @@ async function renderDeployment(
   workdir: string,
   config: DeployConfig,
   sourceRepoDir: string,
-): Promise<{ context: DeploymentContext; url: string; widget: PlacementCounts; storageWrapper: DeployResult['storageWrapper'] }> {
+): Promise<{
+  context: DeploymentContext;
+  url: string;
+  removedVersions: string[];
+  widget: PlacementCounts;
+  storageWrapper: DeployResult['storageWrapper'];
+}> {
   // Stage 2: Resolve ref context. CNAME presence affects basePath computation.
   const cnameDomain = await readCnameFile(workdir);
   const context = resolveContext(config, cnameDomain !== null);
@@ -117,18 +123,21 @@ async function renderDeployment(
     commits,
     release: config.release,  // undefined when not a tag or no release exists → key omitted from JSON
   };
+  // [LAW:one-source-of-truth] The slot this deploy publishes is never stale: a closed PR's late run
+  //   republishes its slot, and the next deploy removes it. Manifest, directories, and the reported
+  //   removals all read this one set, so no slot directory exists without its manifest entry.
+  const staleVersions = config.cleanupVersions.filter((v) => v !== context.versionSlot);
+  core.info(`Cleanup: stale [${staleVersions.join(', ')}] of closed [${config.cleanupVersions.join(', ')}]`);
   // [LAW:dataflow-not-control-flow] Two pure transforms chained on manifest data:
-  //   read → remove stale entries → add new entry → write. Both always run;
-  //   empty cleanupVersions = identity transform in removeVersions.
-  // [LAW:one-source-of-truth] Same order as the directories: cleanup removes, then placeContent
-  //   writes the deployed slot. A deployed slot that is also stale (a closed PR's late run) is
-  //   removed and republished in both, so no slot directory exists without its manifest entry.
-  const cleanedManifest = updateManifest(removeVersions(currentManifest, config.cleanupVersions), entry);
+  //   read → add new entry → remove stale entries → write. Both always run;
+  //   empty staleVersions = identity transform in removeVersions.
+  const withNewEntry = updateManifest(currentManifest, entry);
+  const cleanedManifest = removeVersions(withNewEntry, staleVersions);
   await writeManifest(workdir, cleanedManifest);
 
   // Remove stale version directories from the worktree.
   // [LAW:single-enforcer] Worktree I/O goes through branch-manager.
-  const removedCount = await removeVersionDirectories(workdir, config.cleanupVersions);
+  const removedCount = await removeVersionDirectories(workdir, staleVersions);
   core.info(`Cleanup: removed ${removedCount} stale version(s)`);
 
   // [LAW:dataflow-not-control-flow] INDX-06: index.html is regenerated on every
@@ -199,5 +208,5 @@ async function renderDeployment(
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}`, widget, storageWrapper };
+  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper };
 }
