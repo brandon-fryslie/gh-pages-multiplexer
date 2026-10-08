@@ -8,6 +8,7 @@
 
 import type { RepoMeta } from './index-renderer.js';
 import { escapeHtml } from './index-renderer.js';
+import { ROOT_ENTRIES } from './root-entries.js';
 
 // Static CSS — no interpolation, safe to inline as a template literal.
 const STATS_CSS = `:root { --bg: #ffffff; --bg-card: #fafafa; --fg: #1f2328; --fg-muted: #656d76; --border: #d0d7de; --accent: #0969da; --bar: #2da44e; --bar-pr: #bf8700; }
@@ -73,7 +74,7 @@ const STATS_SCRIPT = `
       container.appendChild(row);
     }
   }
-  fetch('../versions.json', { cache: 'no-store' }).then(function(r){
+  fetch('../${ROOT_ENTRIES.manifest}', { cache: 'no-store' }).then(function(r){
     if (!r.ok) throw new Error('versions.json fetch failed: ' + r.status);
     return r.json();
   }).then(function(manifest){

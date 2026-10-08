@@ -150,6 +150,11 @@ describe('renameUnsafeSlots', () => {
     expect(manifest).toEqual({ schema: 1, versions: [entry('v2.0.0'), { ...legacy, version: 'v1~23rc' }] });
   });
 
+  it('renames a slot deployed onto a root entry the action owns', () => {
+    const { renames } = renameUnsafeSlots({ schema: 2, versions: [entry('v2.0.0'), entry('_versions')] });
+    expect(renames).toEqual([{ from: '_versions', to: '~5Fversions' }]);
+  });
+
   it('throws naming both slots when a rename lands on a slot another entry holds', () => {
     expect(() => renameUnsafeSlots({ schema: 2, versions: [entry('v1~23rc'), entry('v1#rc')] })).toThrow(
       /"v1~23rc" and "v1#rc" both become slot "v1~23rc"/,

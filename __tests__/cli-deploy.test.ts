@@ -89,6 +89,27 @@ describe('cli deploy against a real remote', () => {
     expect(await shown('v2.0.0/index.html')).not.toContain('gh-pages-multiplexer:storage-wrapper');
   });
 
+  it('deploys a version named for a root entry beside that entry, leaving the manifest and version index intact', async () => {
+    const site = path.join(root, 'site');
+    await mkdir(site);
+    await writeFile(path.join(site, 'index.html'), '<html><head></head><body>site</body></html>');
+    const deploy = (...flags: string[]): Promise<number> =>
+      main(['deploy', `--source-dir=${site}`, '--repo=owner/repo', ...flags], { GITHUB_TOKEN: TOKEN });
+
+    expect(await deploy('--ref=refs/heads/main', '--deploy-version=versions.json')).toBe(0);
+    expect(await deploy('--ref=refs/tags/_versions')).toBe(0);
+
+    expect(output.filter((line) => line.startsWith('Deployed ')).map((line) => line.split(' (')[0])).toEqual([
+      'Deployed ~76ersions.json to https://owner.github.io/repo/~76ersions.json/',
+      'Deployed ~5Fversions to https://owner.github.io/repo/~5Fversions/',
+    ]);
+    const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
+    expect(JSON.parse(await shown('versions.json')).versions.map((v: { version: string }) => v.version)).toEqual(['~5Fversions', '~76ersions.json']);
+    expect(await shown('_versions/index.html')).toContain('~76ersions.json');
+    expect(await shown('_versions/stats.html')).toContain('../versions.json');
+    expect(await shown('~5Fversions/index.html')).toContain('<base href="/repo/~5Fversions/">');
+  });
+
   it('publishes without exposing the token or touching the clone\'s config, refs or FETCH_HEAD', async () => {
     const site = path.join(root, 'site');
     await mkdir(site);

@@ -4,15 +4,14 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Manifest, ManifestEntry, SlotRename } from './types.js';
 import { sanitizeRef } from './ref-resolver.js';
-
-const MANIFEST_FILE = 'versions.json';
+import { ROOT_ENTRIES } from './root-entries.js';
 
 /**
  * Read versions.json from workdir. Returns an empty manifest if the file
  * does not exist. Throws if schema is not 1 (T-01-06).
  */
 export async function readManifest(workdir: string): Promise<Manifest> {
-  const file = path.join(workdir, MANIFEST_FILE);
+  const file = path.join(workdir, ROOT_ENTRIES.manifest);
   let raw: string;
   try {
     raw = await readFile(file, 'utf8');
@@ -63,7 +62,7 @@ export function removeVersions(manifest: Manifest, versions: string[]): Manifest
  * Write the manifest to workdir/versions.json as formatted JSON.
  */
 export async function writeManifest(workdir: string, manifest: Manifest): Promise<void> {
-  const file = path.join(workdir, MANIFEST_FILE);
+  const file = path.join(workdir, ROOT_ENTRIES.manifest);
   await writeFile(file, JSON.stringify(manifest, null, 2) + '\n', 'utf8');
 }
 
@@ -81,7 +80,7 @@ export function renameUnsafeSlots(manifest: Manifest): { manifest: Manifest; ren
     if (holder !== undefined) {
       throw new Error(
         `Deployed slots "${holder}" and "${from}" both become slot "${to}" under the URL-safe slot-name rule; ` +
-          `remove one of them from ${MANIFEST_FILE} and its directory`,
+          `remove one of them from ${ROOT_ENTRIES.manifest} and its directory`,
       );
     }
     holders.set(to, from);
