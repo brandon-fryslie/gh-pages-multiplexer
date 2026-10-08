@@ -37777,7 +37777,8 @@ const PLACEMENTS = ['inserted', 'refreshed', 'current'];
 
 // [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
 //   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
-//   widget and the storage wrapper all find a slot's pages through it.
+//   widget and the storage wrapper all find a slot's pages through it. It is also the one place that
+//   turns a slot page into the absolute URL the sitemap and canonical tags publish.
 // [LAW:no-defensive-null-guards] fs errors propagate; only a manifest slot with no directory reads as zero pages.
 // Every *.html file below `dir`, which must exist.
 async function findHtmlFiles(dir) {
@@ -37797,6 +37798,23 @@ async function findSlotHtmlFiles(slotDir) {
             return [];
         throw err;
     }
+}
+/**
+ * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
+ * (e.g. "docs/api.html"). A slot with no directory has no pages.
+ */
+async function findHtmlFilesRelative(slotDir) {
+    const files = await findSlotHtmlFiles(slotDir);
+    return files.map((file) => path__namespace$1.relative(slotDir, file).split(path__namespace$1.sep).join('/')).sort();
+}
+/**
+ * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`
+ * ("https://example.com/repo", no trailing slash). Slot and page names are filesystem names, so every
+ * path segment is percent-encoded: a space or `#` in a name must not end up raw in the URL.
+ */
+function slotPageUrl(siteBase, slot, relPath) {
+    const segments = [slot, ...relPath.split('/')];
+    return `${siteBase}/${segments.map(encodeURIComponent).join('/')}`;
 }
 const SCRIPT_CLOSE = '</script>';
 /**
@@ -38341,11 +38359,6 @@ function renderRobotsTxt(manifest, siteRoot) {
     return lines.join('\n');
 }
 
-// [LAW:one-source-of-truth] The sitemap reflects the latest non-PR version only.
-//   PR previews are explicitly excluded (they're noindex-tagged; listing them in a
-//   sitemap would contradict that).
-// [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
-//   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
 const PR_VERSION_RE$2 = /^pr-\d+$/;
 /**
  * Find the most recently deployed non-PR version slot. Returns null when no
@@ -38356,16 +38369,8 @@ function latestNonPrSlot(manifest) {
     return entry ? entry.version : null;
 }
 /**
- * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
- * (e.g. "docs/api.html"). A slot with no directory has no pages.
- */
-async function findHtmlFilesRelative(slotDir) {
-    const files = await findSlotHtmlFiles(slotDir);
-    return files.map((file) => path$1.relative(slotDir, file).split(path$1.sep).join('/')).sort();
-}
-/**
  * Render a sitemap.xml for the given set of relative URLs, rooted under a
- * version slot within a site. The `loc` URLs are absolute.
+ * version slot within a site. The `loc` URLs are absolute and percent-encoded.
  *
  * baseUrl: site base (e.g., "https://example.com" or "https://owner.github.io/repo")
  * slot: version directory name (e.g., "v2.0.0")
@@ -38378,7 +38383,7 @@ function renderSitemapXml(baseUrl, slot, htmlRelPaths, lastmod) {
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
     const body = htmlRelPaths
         .map((rel) => {
-        const loc = `${baseUrl}/${slot}/${rel}`;
+        const loc = slotPageUrl(baseUrl, slot, rel);
         return `  <url>\n    <loc>${escapeHtml(loc)}</loc>\n    <lastmod>${escapeHtml(dateOnly)}</lastmod>\n  </url>\n`;
     })
         .join('');
@@ -38645,22 +38650,21 @@ function insertInHead(html, tag) {
 }
 /**
  * Inject or update the canonical tag on every HTML file in `versionDir`, pointing
- * at `canonicalBase/<relativePath>`. Idempotent: existing gh-pm canonicals are
+ * at the same page in `canonicalSlot` under `siteBase`. Idempotent: existing gh-pm canonicals are
  * replaced; user-authored canonicals are respected (skipped).
  *
  * Returns the count of files mutated.
  */
-async function injectCanonicalIntoDir(versionDir, canonicalBase) {
-    const htmlFiles = await findSlotHtmlFiles(versionDir);
-    if (htmlFiles.length === 0) {
+async function injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot) {
+    const relPaths = await findHtmlFilesRelative(versionDir);
+    if (relPaths.length === 0) {
         info(`0 HTML files in ${versionDir}, no canonical injection needed`);
         return 0;
     }
     let count = 0;
-    for (const file of htmlFiles) {
-        const rel = path$1.relative(versionDir, file).split(path$1.sep).join('/');
-        const canonicalUrl = `${canonicalBase.replace(/\/$/, '')}/${rel}`;
-        const tag = buildCanonicalTag(canonicalUrl);
+    for (const rel of relPaths) {
+        const file = path$1.join(versionDir, rel);
+        const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
         const original = await promises.readFile(file, 'utf8');
         // Remove any of our previously-injected canonicals (handles update-on-latest-change).
         const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
@@ -39135,14 +39139,17 @@ async function writeRobotsTxt(workdir, manifest, siteRoot) {
 async function writeSitemapXml(workdir, manifest, baseUrl, lastmod) {
     const slot = latestNonPrSlot(manifest);
     let xml;
+    let urls = 0;
     if (slot === null) {
         xml = renderEmptySitemap();
     }
     else {
         const relPaths = await findHtmlFilesRelative(path__namespace$1.join(workdir, slot));
         xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
+        urls = relPaths.length;
     }
     await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), xml, 'utf8');
+    return { slot, urls };
 }
 /**
  * Write _health.json at the worktree root. Pure projection of the manifest +
@@ -39165,21 +39172,21 @@ async function writeStatsHtml(workdir, repoMeta) {
 /**
  * Inject/update canonical URLs into every non-PR version directory, pointing at
  * the latest non-PR version's equivalent path. For PR directories, inject
- * noindex instead. The `latestNonPrSiteBase` is the absolute URL base for the
- * latest non-PR version (e.g., "https://example.com/v2.0.0").
+ * noindex instead. `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
+ * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
  *
  * Data-driven: caller decides which directories to process via `nonPrSlots`
  * and which PR directory to noindex via `currentPrSlot` (null when current
  * deploy is non-PR).
  */
-async function applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot) {
+async function applySeoTags(workdir, nonPrSlots, siteBase, canonicalSlot, currentPrSlot) {
     let canonicalCount = 0;
-    // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
+    // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
     //   should be empty (caller ensures); loop trivially finishes with 0.
-    if (latestNonPrSiteBase !== null) {
+    if (canonicalSlot !== null) {
         for (const slot of nonPrSlots) {
             const versionDir = path__namespace$1.join(workdir, slot);
-            canonicalCount += await injectCanonicalIntoDir(versionDir, latestNonPrSiteBase);
+            canonicalCount += await injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot);
         }
     }
     let noindexCount = 0;
@@ -39494,6 +39501,7 @@ async function deploy(config, source) {
                 attempts: attempt,
                 widget: rendered.widget,
                 storageWrapper: rendered.storageWrapper,
+                sitemap: rendered.sitemap,
             };
         }
         lostOn = { tip, rejection: published.rejection };
@@ -39505,7 +39513,8 @@ function deploySummary(result) {
     const placed = ({ inserted, refreshed, current }) => `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
         `nav widget ${placed(result.widget)}; ` +
-        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
+        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
+        `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'})`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -39584,21 +39593,20 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
     const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
     const latestSlot = latestNonPrSlot(cleanedManifest);
-    const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;
     const nonPrSlots = cleanedManifest.versions
         .filter((v) => !PR_VERSION_RE$1.test(v.version))
         .map((v) => v.version);
     const currentPrSlot = PR_VERSION_RE$1.test(context.versionSlot) ? context.versionSlot : null;
-    const seoCounts = await applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot);
+    const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
     info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
     // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
     // Written at the worktree root. Stats dashboard lives under _versions/.
     // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
     await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
-    await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+    const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
-    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper };
+    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper, sitemap };
 }
 
 // [LAW:one-source-of-truth] PREVIEW_COMMENT_MARKER is the sole identity check for "this is the

@@ -1,10 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 import {
   latestNonPrSlot,
-  findHtmlFilesRelative,
   renderSitemapXml,
   renderEmptySitemap,
 } from '../src/sitemap-generator.js';
@@ -39,48 +35,6 @@ describe('latestNonPrSlot', () => {
   });
 });
 
-describe('findHtmlFilesRelative', () => {
-  let dir: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'sitemap-'));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it('finds HTML files at the root, sorted', async () => {
-    await writeFile(path.join(dir, 'b.html'), '');
-    await writeFile(path.join(dir, 'a.html'), '');
-    expect(await findHtmlFilesRelative(dir)).toEqual(['a.html', 'b.html']);
-  });
-
-  it('finds HTML files in nested directories', async () => {
-    await mkdir(path.join(dir, 'docs', 'api'), { recursive: true });
-    await writeFile(path.join(dir, 'index.html'), '');
-    await writeFile(path.join(dir, 'docs', 'index.html'), '');
-    await writeFile(path.join(dir, 'docs', 'api', 'users.html'), '');
-    const result = await findHtmlFilesRelative(dir);
-    expect(result).toEqual(['docs/api/users.html', 'docs/index.html', 'index.html']);
-  });
-
-  it('ignores non-HTML files', async () => {
-    await writeFile(path.join(dir, 'index.html'), '');
-    await writeFile(path.join(dir, 'script.js'), '');
-    await writeFile(path.join(dir, 'style.css'), '');
-    expect(await findHtmlFilesRelative(dir)).toEqual(['index.html']);
-  });
-
-  it('returns empty array for missing directory', async () => {
-    expect(await findHtmlFilesRelative(path.join(dir, 'missing'))).toEqual([]);
-  });
-
-  it('propagates fs errors other than a missing slot directory', async () => {
-    await writeFile(path.join(dir, 'not-a-dir'), '');
-    await expect(findHtmlFilesRelative(path.join(dir, 'not-a-dir'))).rejects.toMatchObject({ code: 'ENOTDIR' });
-  });
-});
-
 describe('renderSitemapXml', () => {
   it('emits valid sitemap XML with URLs under the slot', () => {
     const xml = renderSitemapXml(
@@ -95,20 +49,27 @@ describe('renderSitemapXml', () => {
     expect(xml).toContain('<lastmod>2026-04-06</lastmod>');
   });
 
+  it('percent-encodes slot and page names in <loc>', () => {
+    const xml = renderSitemapXml(
+      'https://example.com/repo',
+      'v1 beta',
+      ['docs/my page.html', 'faq#1.html', 'a&b.html'],
+      '2026-04-06T12:00:00Z',
+    );
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/docs/my%20page.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/faq%231.html</loc>');
+    expect(xml).toContain('<loc>https://example.com/repo/v1%20beta/a%26b.html</loc>');
+  });
+
   it('emits empty urlset when no HTML files provided', () => {
     const xml = renderSitemapXml('https://example.com', 'v1.0.0', [], '2026-04-06T12:00:00Z');
     expect(xml).toContain('<urlset');
     expect(xml).not.toContain('<url>');
   });
 
-  it('escapes special chars in URLs', () => {
-    const xml = renderSitemapXml(
-      'https://example.com',
-      'v1',
-      ['search.html?q=foo&bar=baz'],
-      '2026-04-06T00:00:00Z',
-    );
-    expect(xml).toContain('&amp;');
+  it('XML-escapes the site base', () => {
+    const xml = renderSitemapXml('https://example.com/a&b', 'v1', ['index.html'], '2026-04-06T00:00:00Z');
+    expect(xml).toContain('<loc>https://example.com/a&amp;b/v1/index.html</loc>');
   });
 });
 

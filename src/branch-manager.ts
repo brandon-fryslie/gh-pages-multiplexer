@@ -16,13 +16,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SourceRepo, WrapperCoverage } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SitemapCoverage, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
-import { emptyPlacementCounts, addPlacementCounts } from './slot-pages.js';
+import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative } from './slot-pages.js';
 import { renderRobotsTxt } from './robots-generator.js';
 import {
-  findHtmlFilesRelative,
   latestNonPrSlot,
   renderEmptySitemap,
   renderSitemapXml,
@@ -358,16 +357,19 @@ export async function writeSitemapXml(
   manifest: Manifest,
   baseUrl: string,
   lastmod: string,
-): Promise<void> {
+): Promise<SitemapCoverage> {
   const slot = latestNonPrSlot(manifest);
   let xml: string;
+  let urls = 0;
   if (slot === null) {
     xml = renderEmptySitemap();
   } else {
     const relPaths = await findHtmlFilesRelative(path.join(workdir, slot));
     xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
+    urls = relPaths.length;
   }
   await writeFile(path.join(workdir, 'sitemap.xml'), xml, 'utf8');
+  return { slot, urls };
 }
 
 /**
@@ -400,8 +402,8 @@ export async function writeStatsHtml(
 /**
  * Inject/update canonical URLs into every non-PR version directory, pointing at
  * the latest non-PR version's equivalent path. For PR directories, inject
- * noindex instead. The `latestNonPrSiteBase` is the absolute URL base for the
- * latest non-PR version (e.g., "https://example.com/v2.0.0").
+ * noindex instead. `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
+ * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
  *
  * Data-driven: caller decides which directories to process via `nonPrSlots`
  * and which PR directory to noindex via `currentPrSlot` (null when current
@@ -410,16 +412,17 @@ export async function writeStatsHtml(
 export async function applySeoTags(
   workdir: string,
   nonPrSlots: string[],
-  latestNonPrSiteBase: string | null,
+  siteBase: string,
+  canonicalSlot: string | null,
   currentPrSlot: string | null,
 ): Promise<{ canonicalCount: number; noindexCount: number }> {
   let canonicalCount = 0;
-  // [LAW:dataflow-not-control-flow] When latestNonPrSiteBase is null, nonPrSlots
+  // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
   //   should be empty (caller ensures); loop trivially finishes with 0.
-  if (latestNonPrSiteBase !== null) {
+  if (canonicalSlot !== null) {
     for (const slot of nonPrSlots) {
       const versionDir = path.join(workdir, slot);
-      canonicalCount += await injectCanonicalIntoDir(versionDir, latestNonPrSiteBase);
+      canonicalCount += await injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot);
     }
   }
   let noindexCount = 0;

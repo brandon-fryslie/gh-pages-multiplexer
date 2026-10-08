@@ -10,7 +10,7 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetIntoSlots, placeStorageWrapperInSlots } from '../src/branch-manager.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, writeSitemapXml, applySeoTags, injectWidgetIntoSlots, placeStorageWrapperInSlots } from '../src/branch-manager.js';
 import { STORAGE_WRAPPER_MARKER, autoNamespace, renderStorageWrapperScriptTag } from '../src/storage-wrapper.js';
 import { WIDGET_MARKER, getWidgetScriptTag } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
@@ -330,5 +330,53 @@ describe('placeStorageWrapperInSlots', () => {
     expect(await readPage('v2.0.0')).toBe(page(wrapper('v2.0.0')));
     expect(await readPage('v1.0.0')).toBe(page(renderStorageWrapperScriptTag({ namespace: deployedNamespace })));
     expect(await readPage('v0.9.0')).toBe(page(''));
+  });
+});
+
+describe('writeSitemapXml', () => {
+  let workdir: string;
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'bm-sitemap-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+  });
+
+  const entry = (version: string) => ({ version, ref: `refs/tags/${version}`, sha: 'abc', timestamp: '2026-04-06T00:00:00Z' });
+
+  it('writes encoded URLs for the latest non-PR slot and reports how many', async () => {
+    await mkdir(path.join(workdir, 'v2', 'my docs'), { recursive: true });
+    await writeFile(path.join(workdir, 'v2', 'index.html'), '');
+    await writeFile(path.join(workdir, 'v2', 'my docs', 'a b.html'), '');
+    const manifest: Manifest = { schema: 2, versions: [entry('pr-3'), entry('v2'), entry('v1')] };
+    const coverage = await writeSitemapXml(workdir, manifest, 'https://example.com/repo', '2026-04-06T12:00:00Z');
+    const xml = await fsReadFile(path.join(workdir, 'sitemap.xml'), 'utf8');
+    expect(xml).toContain('<loc>https://example.com/repo/v2/my%20docs/a%20b.html</loc>');
+    expect(coverage).toEqual({ slot: 'v2', urls: 2 });
+  });
+
+  it('reports no slot and zero URLs when no non-PR version exists', async () => {
+    const coverage = await writeSitemapXml(workdir, { schema: 2, versions: [entry('pr-3')] }, 'https://example.com', '2026-04-06T12:00:00Z');
+    expect(coverage).toEqual({ slot: null, urls: 0 });
+  });
+});
+
+describe('applySeoTags', () => {
+  let workdir: string;
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'bm-seo-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+  });
+
+  it('points every non-PR page at the same page of the canonical slot under the site base', async () => {
+    await mkdir(path.join(workdir, 'v1'), { recursive: true });
+    await writeFile(path.join(workdir, 'v1', 'a b.html'), '<html><head></head><body></body></html>');
+    const counts = await applySeoTags(workdir, ['v1'], 'https://example.com/repo', 'v2', null);
+    expect(counts).toEqual({ canonicalCount: 1, noindexCount: 0 });
+    expect(await fsReadFile(path.join(workdir, 'v1', 'a b.html'), 'utf8')).toContain(
+      '<link rel="canonical" href="https://example.com/repo/v2/a%20b.html">',
+    );
   });
 });

@@ -9,7 +9,7 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, WrapperCoverage } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, SitemapCoverage, WrapperCoverage } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
@@ -70,6 +70,7 @@ export async function deploy(config: DeployConfig, source: SourceRepo): Promise<
         attempts: attempt,
         widget: rendered.widget,
         storageWrapper: rendered.storageWrapper,
+        sitemap: rendered.sitemap,
       };
     }
     lostOn = { tip, rejection: published.rejection };
@@ -83,7 +84,8 @@ export function deploySummary(result: DeployResult): string {
     `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
   return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
     `nav widget ${placed(result.widget)}; ` +
-    `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
+    `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
+    `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'})`;
 }
 
 /**
@@ -101,6 +103,7 @@ async function renderDeployment(
   removedVersions: string[];
   widget: PlacementCounts;
   storageWrapper: DeployResult['storageWrapper'];
+  sitemap: SitemapCoverage;
 }> {
   // Stage 2: Resolve ref context. CNAME presence affects basePath computation.
   const cnameDomain = await readCnameFile(workdir);
@@ -192,21 +195,20 @@ async function renderDeployment(
   const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
   const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
   const latestSlot = latestNonPrSlot(cleanedManifest);
-  const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;
   const nonPrSlots = cleanedManifest.versions
     .filter((v) => !PR_VERSION_RE.test(v.version))
     .map((v) => v.version);
   const currentPrSlot = PR_VERSION_RE.test(context.versionSlot) ? context.versionSlot : null;
-  const seoCounts = await applySeoTags(workdir, nonPrSlots, latestNonPrSiteBase, currentPrSlot);
+  const seoCounts = await applySeoTags(workdir, nonPrSlots, siteBase, latestSlot, currentPrSlot);
   core.info(`SEO: injected ${seoCounts.canonicalCount} canonical, ${seoCounts.noindexCount} noindex tag(s)`);
 
   // Stage 4.8: Crawler & monitoring artifacts — robots.txt, sitemap.xml, _health.json.
   // Written at the worktree root. Stats dashboard lives under _versions/.
   // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
   await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
-  await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+  const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
   await writeHealthJson(workdir, cleanedManifest, context.timestamp);
   await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
 
-  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper };
+  return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper, sitemap };
 }

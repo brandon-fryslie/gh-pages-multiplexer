@@ -81,8 +81,8 @@ describe('cli deploy against a real remote', () => {
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed '))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0)\n',
-      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0)\n',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
     expect(await shown('v1.0.0/index.html')).toContain('"gh-pm:owner/repo/v1.0.0:"');
@@ -104,8 +104,8 @@ describe('cli deploy against a real remote', () => {
 
     // The second deploy re-places v1.0.0's content, so its one page gets the widget inserted again.
     expect(output.filter((line) => line.startsWith('Deployed v1.0.0'))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0)\n',
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0)\n',
     ]);
     expect(output.filter((line) => line.includes(TOKEN))).toEqual([]);
     expect(await readFile(path.join(clone, '.git', 'config'))).toEqual(configBefore);

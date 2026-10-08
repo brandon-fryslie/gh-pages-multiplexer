@@ -3,10 +3,9 @@
 //   sitemap would contradict that).
 // [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
 //   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
-import path from 'node:path';
 import type { Manifest } from './types.js';
 import { escapeHtml } from './index-renderer.js';
-import { findSlotHtmlFiles } from './slot-pages.js';
+import { slotPageUrl } from './slot-pages.js';
 
 const PR_VERSION_RE = /^pr-\d+$/;
 
@@ -20,17 +19,8 @@ export function latestNonPrSlot(manifest: Manifest): string | null {
 }
 
 /**
- * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
- * (e.g. "docs/api.html"). A slot with no directory has no pages.
- */
-export async function findHtmlFilesRelative(slotDir: string): Promise<string[]> {
-  const files = await findSlotHtmlFiles(slotDir);
-  return files.map((file) => path.relative(slotDir, file).split(path.sep).join('/')).sort();
-}
-
-/**
  * Render a sitemap.xml for the given set of relative URLs, rooted under a
- * version slot within a site. The `loc` URLs are absolute.
+ * version slot within a site. The `loc` URLs are absolute and percent-encoded.
  *
  * baseUrl: site base (e.g., "https://example.com" or "https://owner.github.io/repo")
  * slot: version directory name (e.g., "v2.0.0")
@@ -49,7 +39,7 @@ export function renderSitemapXml(
     '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
   const body = htmlRelPaths
     .map((rel) => {
-      const loc = `${baseUrl}/${slot}/${rel}`;
+      const loc = slotPageUrl(baseUrl, slot, rel);
       return `  <url>\n    <loc>${escapeHtml(loc)}</loc>\n    <lastmod>${escapeHtml(dateOnly)}</lastmod>\n  </url>\n`;
     })
     .join('');
