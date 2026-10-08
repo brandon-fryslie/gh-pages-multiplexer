@@ -12,7 +12,7 @@ your-site.github.io/your-repo/
 └── pr-42/              ← PR previews
 ```
 
-Every deployed page gets a small floating nav widget (Shadow-DOM-isolated) so users can jump between versions or back to the index without leaving the site.
+Every deployed page gets a small floating nav widget (Shadow-DOM-isolated) so users can jump between versions or back to the index without leaving the site. A page framed by another page on the same site leaves the widget to the outer page, so a live demo in an iframe never shows a second one.
 
 ---
 

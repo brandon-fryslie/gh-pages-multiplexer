@@ -303,6 +303,20 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
 
   return `<script>${WIDGET_MARKER}
 (function(){
+  // The drawer belongs to the outermost page of this site. A deployed page framed by a
+  // same-origin page (a live demo in an iframe) leaves the drawer to it; framed by another
+  // origin (an embedding portal, an editor preview), it is the visitor's only switcher.
+  if (framedBySameOrigin()) {
+    console.debug('gh-pm-nav: framed by a same-origin page; the switcher is left to the top window');
+    return;
+  }
+  function framedBySameOrigin(){
+    if (window.self === window.top) return false;
+    // Reading a cross-origin window's location throws SecurityError: that throw is the answer.
+    // [LAW:no-silent-failure] Any other error is not, and propagates.
+    try { return window.top.location.origin === window.location.origin; }
+    catch (e) { if (e && e.name === 'SecurityError') return false; throw e; }
+  }
   var MANIFEST_URL = ${M};
   var INDEX_URL = ${I};
   var CURRENT = ${C};
@@ -312,9 +326,6 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
   var COLOR = ${COLOR};
   var SHADOW_CSS = ${CSS};
   var SHADOW_HTML = ${HTML};
-  // [LAW:single-enforcer] The switcher belongs to the top-level browsing context. A deployed
-  // page framed by another (a live demo in an iframe) would otherwise mount a second drawer.
-  if (window.self !== window.top) return;
   if (customElements.get('gh-pm-nav')) return;
   function defineEl(){
     class GhPmNav extends HTMLElement {
