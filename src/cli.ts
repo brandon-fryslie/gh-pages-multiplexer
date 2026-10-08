@@ -21,7 +21,7 @@ Deploy a static site to a versioned subdirectory on a GitHub Pages branch.
 Options:
   --source-dir=<path>          Directory containing the built site (required)
   --target-branch=<name>       Target gh-pages branch (default: gh-pages)
-  --ref-patterns=<csv>         Comma-separated ref patterns to deploy
+  --ref-patterns=<csv>         Comma-separated globs matched against the branch or tag name, or pr-<number>
   --base-path-mode=<mode>      base-tag | rewrite | none (default: base-tag)
                                'none' = caller set base URL at build time; skip rewriting
   --base-path-prefix=<prefix>  Override auto-detected base path prefix

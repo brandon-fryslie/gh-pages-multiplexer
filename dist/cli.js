@@ -32045,19 +32045,24 @@ function escapeSlotChar(char) {
     return [...new TextEncoder().encode(char)].map((byte) => `~${byte.toString(16).toUpperCase().padStart(2, '0')}`).join('');
 }
 /**
+ * The short name of a git ref: the branch or tag name with its well-known prefix stripped
+ * (`refs/heads/feature/auth` -> `feature/auth`), and a PR merge ref named `pr-<N>`. Any other ref
+ * passes through whole. ref-patterns match this name, and the slot is sanitized from it.
+ * One anchored match strips one prefix: a branch named `refs/pull/5/merge` stays that name rather than
+ * becoming `pr-5` and landing in PR #5's slot.
+ */
+function refName(ref) {
+    return ref.replace(/^refs\/(?:(?:heads|tags)\/(.+)|pull\/(\d+)\/merge)$/s, (_, name, pr) => name ?? `pr-${pr}`);
+}
+/**
  * Sanitize a git ref into a slot name: a single path segment that is safe as a directory name and as
  * a URL, and never the name of a root entry the action owns. Implements D-04/D-06 and mitigates
  * T-01-01 (path traversal via ref name). Idempotent: a slot name sanitizes to itself.
  */
 function sanitizeRef(ref) {
-    // Strip well-known ref prefixes. PR refs map to pr-N.
-    const stripped = ref
-        .replace(/^refs\/tags\//, '')
-        .replace(/^refs\/heads\//, '')
-        .replace(/^refs\/pull\/(\d+)\/merge$/, 'pr-$1');
     // Remove control characters and null bytes entirely.
     // eslint-disable-next-line no-control-regex
-    const noControl = stripped.replace(/[\x00-\x1f\x7f]/g, '');
+    const noControl = refName(ref).replace(/[\x00-\x1f\x7f]/g, '');
     // Split into segments, drop any `..` segments (path traversal defense), then rejoin with hyphens.
     const segments = noControl.split('/').filter((seg) => seg !== '..' && seg.length > 0);
     const joined = segments.join('-');
@@ -32075,12 +32080,13 @@ function sanitizeRef(ref) {
     return ROOT_ENTRY_NAMES.has(safe.toLowerCase()) ? escapeSlotChar(safe[0]) + safe.slice(1) : safe;
 }
 /**
- * Test a versionSlot against a list of glob patterns. Empty list matches everything.
+ * Test a ref name against a list of picomatch globs. Empty list matches everything. `*` stops at `/`
+ * and `**` crosses it, so `feature/*` matches `feature/auth` but not `feature/auth/oauth`.
  */
-function matchesPatterns(versionSlot, patterns) {
+function matchesPatterns(name, patterns) {
     if (patterns.length === 0)
         return true;
-    return patterns.some((p) => picomatch.isMatch(versionSlot, p));
+    return patterns.some((p) => picomatch.isMatch(name, p));
 }
 /**
  * Derive a DeploymentContext from config. Throws if the ref fails pattern filtering.
@@ -32096,8 +32102,12 @@ function resolveContext(config, cname = false) {
     const hasExplicitVersion = config.version.length > 0;
     const versionName = hasExplicitVersion ? config.version : config.ref;
     const versionSlot = sanitizeRef(versionName);
-    if (!hasExplicitVersion && !matchesPatterns(versionSlot, config.refPatterns)) {
-        throw new Error(`Ref ${config.ref} (slot ${versionSlot}) does not match any deployment pattern: ${config.refPatterns.join(', ')}`);
+    // Patterns match the ref name the user wrote them against, never the slot: sanitizing turns
+    //   `feature/auth` into `feature-auth` and `_versions` into `~5Fversions`, which no ref glob names.
+    const name = refName(config.ref);
+    if (!hasExplicitVersion && !matchesPatterns(name, config.refPatterns)) {
+        throw new Error(`Ref ${config.ref} (name ${name}) does not match any deployment pattern: ${config.refPatterns.join(', ')}. ` +
+            'Patterns match the branch or tag name, or pr-<number>; `*` stops at `/` and `**` crosses it.');
     }
     const repoName = config.repo.includes('/') ? config.repo.split('/')[1] : config.repo;
     const isUserSite = /\.github\.io$/i.test(repoName);
@@ -34264,7 +34274,7 @@ Deploy a static site to a versioned subdirectory on a GitHub Pages branch.
 Options:
   --source-dir=<path>          Directory containing the built site (required)
   --target-branch=<name>       Target gh-pages branch (default: gh-pages)
-  --ref-patterns=<csv>         Comma-separated ref patterns to deploy
+  --ref-patterns=<csv>         Comma-separated globs matched against the branch or tag name, or pr-<number>
   --base-path-mode=<mode>      base-tag | rewrite | none (default: base-tag)
                                'none' = caller set base URL at build time; skip rewriting
   --base-path-prefix=<prefix>  Override auto-detected base path prefix

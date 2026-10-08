@@ -22,7 +22,7 @@ Before touching anything, fetch and read the authoritative inputs/outputs so you
 Key facts from the action:
 
 - **Required input:** `source-dir` (directory containing the built static site)
-- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default `*`), `base-path-mode` (`base-tag` | `rewrite` | `none`, default `base-tag`), `base-path-prefix`, `version`, `widget-icon`, `widget-label`, `widget-position`, `widget-color`, `token`
+- **Optional inputs:** `target-branch` (default `gh-pages`), `ref-patterns` (default: all refs), `base-path-mode` (`base-tag` | `rewrite` | `none`, default `base-tag`), `base-path-prefix`, `version`, `widget-icon`, `widget-label`, `widget-position`, `widget-color`, `token`
 - **Widget customization** is opt-in: `widget-icon` accepts a full `<svg>` element, `widget-label` is text with optional `{version}` token, `widget-position` is `"<edge> <vertical%>"` (e.g. `"left 50%"`), `widget-color` is a hex code (default bright orange `#f97316`). Defaults are sane — only set these if the user has a brand color, custom icon, or specific layout requirement.
 - **Outputs:** `version`, `url`
 - **Runtime:** `node24` — the consumer workflow does not need to set up Node; the Action brings its own
@@ -226,7 +226,7 @@ jobs:
 - `fetch-depth: 0` is **non-negotiable**. Without it, git metadata extraction fails loudly. Do not omit it to "speed up checkout."
 - Do **not** add `actions/setup-node` before the `gh-pages-multiplexer` step to set up Node **for the action** — the Action bundles its own Node 24 runtime. `setup-node` is only for your **build** step.
 - If the user's site is pre-built and committed (no build step), skip the build section entirely and point `source-dir` at the existing folder (`docs`, `site`, `public`, whatever). In that case Path A doesn't apply — use Path B with `base-path-mode: base-tag` (default) or `rewrite`.
-- If the user only wants certain refs deployed (e.g. "only tags"), set `ref-patterns: 'v*'` or `'refs/tags/v*'`. Note: `ref-patterns` is **ignored** when `version:` is set in Path A — the explicit version is interpreted as "deploy this no matter what."
+- If the user only wants certain refs deployed, narrow the workflow's `on:` trigger first — "only tags" is `on: push: tags: ['v*']`, since `ref-patterns` cannot tell a tag from a branch of the same name. `ref-patterns` matches the branch or tag name (`refs/heads/`/`refs/tags/` stripped), so `refs/tags/v*` matches nothing. Note: `ref-patterns` is **ignored** when `version:` is set in Path A — the explicit version is interpreted as "deploy this no matter what."
 - Path A (`base-path-mode: none`) + no `version:` is a **configuration error** — the default version is derived from the ref, but in Path A you explicitly want it to match the base URL you built with. Always set both, or neither.
 
 ## 5. Enable GitHub Pages in repo settings
@@ -270,7 +270,7 @@ gh api -X PUT  repos/{owner}/{repo}/pages \
    - **"Previous SHA not reachable (shallow clone)"** → you forgot `fetch-depth: 0`
    - **403 on push to gh-pages** → missing `permissions: contents: write`
    - **403 on PR comment** → missing `permissions: pull-requests: write` (deploy still succeeded; the comment is optional — inform the user and offer to add the permission)
-   - **"ref pattern did not match"** → your `ref-patterns:` filter excluded the current ref
+   - **"does not match any deployment pattern"** → your `ref-patterns:` filter excluded the current ref
 
 ## 7. Report to the user
 

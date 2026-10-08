@@ -11,9 +11,9 @@ inputs:
     required: false
     default: 'gh-pages'
   ref-patterns:
-    description: 'Glob patterns for refs that trigger deployment (comma-separated). Default: deploy all refs. Bypassed when `version` is set.'
+    description: 'Glob patterns for refs that trigger deployment (comma-separated), matched against the branch or tag name (`main`, `feature/auth`, `v1.2.3`) or `pr-<number>` for a pull request. `*` stops at `/` and `**` crosses it. Default: deploy all refs. Bypassed when `version` is set.'
     required: false
-    default: '*'
+    default: ''
   base-path-mode:
     description: 'Base path correction mode: "base-tag" (default), "rewrite", or "none". Use "none" when your build already sets the correct absolute base URL at build time (Vite `base`, Next.js `basePath`, Astro `base`, etc.) — the action will copy your files unchanged.'
     required: false
