@@ -41,8 +41,9 @@ export function autoNamespace(owner: string, repo: string, version: string): str
 // - Cross-origin iframes are unaffected (they have their own origin)
 function renderWrapperScriptBody(namespace: string): string {
   // NOTE: The namespace is the only user-controlled value. It's a string embedded as
-  // a JSON literal to prevent any script-breaking characters.
-  const NS_LITERAL = JSON.stringify(namespace);
+  // a JSON literal with every `</` escaped, so it can neither break out of the script element
+  // nor end the block before the </script> slot-pages.refreshBlock finds its end at.
+  const NS_LITERAL = JSON.stringify(namespace).replace(/<\//g, '<\\/');
   return `(function(){
 'use strict';
 if (window.__ghPmStorageWrapped) return;
@@ -129,8 +130,8 @@ window.__ghPmStorageNamespace = NS;
 }
 
 /**
- * Render the full `<script>` tag to inject into the top of `<head>`. Idempotent
- * via STORAGE_WRAPPER_MARKER.
+ * Render the full `<script>` tag to inject into the top of `<head>`. The marker
+ * identifies the block so later deploys can re-render it.
  *
  * Inline script (not `src`) so it executes synchronously before any subsequent
  * `<head>` content — including user scripts that might access localStorage.

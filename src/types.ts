@@ -1,10 +1,10 @@
 // [LAW:one-source-of-truth] Shared data contracts for the entire deployment pipeline.
 // All pipeline stages consume and produce instances of these types.
 
-/** What placing the current nav widget did to one page. */
-export const WIDGET_PLACEMENTS = ['inserted', 'refreshed', 'current'] as const;
-export type WidgetPlacement = (typeof WIDGET_PLACEMENTS)[number];
-export type WidgetPlacementCounts = Record<WidgetPlacement, number>;
+/** What placing the current nav widget or storage wrapper did to one page. */
+export const PLACEMENTS = ['inserted', 'refreshed', 'current'] as const;
+export type Placement = (typeof PLACEMENTS)[number];
+export type PlacementCounts = Record<Placement, number>;
 
 /** Configuration parsed from action inputs */
 export interface DeployConfig {
@@ -113,5 +113,6 @@ export interface DeployResult {
   removedVersions: string[];  // version slots removed during cleanup
   outcome: 'pushed' | 'unchanged';  // whether the deploy published a commit or matched the tip already
   attempts: number;  // publish attempts; >1 means a concurrent deploy moved the tip and we rebuilt
-  widget: WidgetPlacementCounts;  // what placing the current nav widget did to the pages of every slot
+  widget: PlacementCounts;  // what placing the current nav widget did to the pages of every slot
+  storageWrapper: PlacementCounts;  // what placing the current storage wrapper did to the pages of every slot
 }

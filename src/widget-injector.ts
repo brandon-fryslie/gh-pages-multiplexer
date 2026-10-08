@@ -11,15 +11,15 @@
 // [LAW:no-defensive-null-guards] fs errors propagate; no try/catch swallows. No || true.
 
 import * as core from '@actions/core';
-import { readFile, writeFile, readdir } from 'node:fs/promises';
-import * as path from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 import {
   DEFAULT_WIDGET_ICON,
   DEFAULT_WIDGET_LABEL,
   DEFAULT_WIDGET_POSITION,
   DEFAULT_WIDGET_COLOR,
 } from './widget-config.js';
-import { WIDGET_PLACEMENTS, type WidgetPlacement, type WidgetPlacementCounts } from './types.js';
+import type { PlacementCounts } from './types.js';
+import { emptyPlacementCounts, findSlotHtmlFiles, refreshBlock, type PlacedPage } from './slot-pages.js';
 
 export const WIDGET_MARKER = '<!-- gh-pages-multiplexer:nav-widget -->';
 
@@ -478,33 +478,6 @@ export function getWidgetScriptTag(opts: WidgetInjectionOpts): string {
 </script>`;
 }
 
-// ---- Recursive walk ---------------------------------------------------------
-
-async function findHtmlFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...(await findHtmlFiles(full)));
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.html')) {
-      results.push(full);
-    }
-  }
-  return results;
-}
-
-// A slot listed in versions.json can have no directory: git does not track empty directories, so a
-// slot deployed from a source dir with no files has none. Such a slot has zero pages, like an empty one.
-async function findSlotHtmlFiles(slotDir: string): Promise<string[]> {
-  try {
-    return await findHtmlFiles(slotDir);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT' && (err as NodeJS.ErrnoException).path === slotDir) return [];
-    throw err;
-  }
-}
-
 // ---- Insertion (data-driven position selection, D-14) ----------------------
 
 function insertScript(html: string, scriptTag: string, filePath: string): string {
@@ -525,26 +498,10 @@ function insertScript(html: string, scriptTag: string, filePath: string): string
   return html + scriptTag;
 }
 
-// Every widget block this action has ever emitted opens with WIDGET_OPEN and ends at the first
-// </script> after it: getWidgetScriptTag escapes every `</` in the values it inlines (T-04-01).
 const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
-const SCRIPT_CLOSE = '</script>';
 
-export function emptyPlacementCounts(): WidgetPlacementCounts {
-  return { inserted: 0, refreshed: 0, current: 0 };
-}
-
-export function addPlacementCounts(total: WidgetPlacementCounts, counts: WidgetPlacementCounts): void {
-  for (const placement of WIDGET_PLACEMENTS) total[placement] += counts[placement];
-}
-
-function placeWidget(html: string, scriptTag: string, filePath: string): { html: string; placement: WidgetPlacement } {
-  const start = html.indexOf(WIDGET_OPEN);
-  if (start === -1) return { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
-  const close = html.indexOf(SCRIPT_CLOSE, start);
-  if (close === -1) throw new Error(`${filePath}: nav widget block has no closing ${SCRIPT_CLOSE}`);
-  const placed = html.slice(0, start) + scriptTag + html.slice(close + SCRIPT_CLOSE.length);
-  return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
+function placeWidget(html: string, scriptTag: string, filePath: string): PlacedPage {
+  return refreshBlock(html, WIDGET_OPEN, scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
 }
 
 /**
@@ -559,7 +516,7 @@ function placeWidget(html: string, scriptTag: string, filePath: string): { html:
 export async function injectWidgetIntoHtmlFiles(
   versionDir: string,
   opts: WidgetInjectionOpts,
-): Promise<WidgetPlacementCounts> {
+): Promise<PlacementCounts> {
   const scriptTag = getWidgetScriptTag(opts);
   const htmlFiles = await findSlotHtmlFiles(versionDir);
   const counts = emptyPlacementCounts();

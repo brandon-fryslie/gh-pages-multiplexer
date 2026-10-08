@@ -31,9 +31,9 @@ describe('renderStorageWrapperScriptTag', () => {
 
   it('handles special characters safely via JSON.stringify', () => {
     const tag = renderStorageWrapperScriptTag({ namespace: 'evil"</script>' });
-    // JSON.stringify escapes the quote, preventing script-tag injection
-    expect(tag).not.toMatch(/"evil"<\/script>/);
-    expect(tag).toContain('evil\\"');
+    // JSON.stringify escapes the quote and every `</` is escaped, so the tag's only </script> is its own
+    expect(tag).toContain('evil\\"<\\/script>');
+    expect(tag.split('</script>')).toHaveLength(2);
   });
 });
 

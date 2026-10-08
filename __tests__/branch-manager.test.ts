@@ -10,11 +10,12 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetIntoSlots } from '../src/branch-manager.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, injectWidgetIntoSlots, placeStorageWrapperInSlots } from '../src/branch-manager.js';
+import { STORAGE_WRAPPER_MARKER, autoNamespace, renderStorageWrapperScriptTag } from '../src/storage-wrapper.js';
 import { WIDGET_MARKER, getWidgetScriptTag } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
 import { renderIndexHtml, renderRedirectHtml } from '../src/index-renderer.js';
-import type { DeploymentContext, Manifest, WidgetPlacementCounts } from '../src/types.js';
+import type { DeploymentContext, Manifest, PlacementCounts } from '../src/types.js';
 import { readFile } from 'node:fs/promises';
 
 // withWorktree / commitAndPush run against real git in
@@ -174,7 +175,7 @@ describe('widget injection in deploy pipeline', () => {
   const siteRoot = '/widgets/';
   const noCustomization = { icon: '', label: '', position: '', color: '' };
   const slots = (m: Manifest): string[] => m.versions.map((v) => v.version);
-  async function runPipelineStages(m: Manifest = manifest): Promise<WidgetPlacementCounts> {
+  async function runPipelineStages(m: Manifest = manifest): Promise<PlacementCounts> {
     await writeIndexHtml(workdir, m, repoMeta);
     await placeContent(workdir, sourceDir, wctx, 'base-tag');
     return injectWidgetIntoSlots(workdir, siteRoot, slots(m), noCustomization);
@@ -289,5 +290,43 @@ describe('widget injection in deploy pipeline', () => {
       ],
     };
     expect(await runPipelineStages(withEmptySlot)).toEqual({ inserted: 1, refreshed: 0, current: 0 });
+  });
+});
+
+describe('placeStorageWrapperInSlots', () => {
+  let workdir: string;
+  const repoMeta = { owner: 'acme', repo: 'widgets' };
+  const page = (head: string): string => `<!doctype html><html><head>${head}</head><body></body></html>`;
+  const wrapper = (slot: string): string =>
+    renderStorageWrapperScriptTag({ namespace: autoNamespace(repoMeta.owner, repoMeta.repo, slot) });
+
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'swslots-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+  });
+
+  async function writePage(slot: string, html: string): Promise<void> {
+    await mkdir(path.join(workdir, slot), { recursive: true });
+    await writeFile(path.join(workdir, slot, 'index.html'), html, 'utf8');
+  }
+  const readPage = (slot: string): Promise<string> => fsReadFile(path.join(workdir, slot, 'index.html'), 'utf8');
+
+  it('re-renders an older slot\'s stale wrapper under that slot\'s own namespace and leaves an unwrapped slot unwrapped', async () => {
+    await writePage('v2.0.0', page(''));
+    await writePage('v1.0.0', page(`${STORAGE_WRAPPER_MARKER}<script>var OLD_WRAPPER;</script>`));
+    await writePage('v0.9.0', page(''));
+
+    const placed = await placeStorageWrapperInSlots(workdir, repoMeta, [
+      { slot: 'v2.0.0', coverage: 'every-page' },
+      { slot: 'v1.0.0', coverage: 'wrapped-pages' },
+      { slot: 'v0.9.0', coverage: 'wrapped-pages' },
+    ]);
+
+    expect(placed).toEqual({ inserted: 1, refreshed: 1, current: 0 });
+    expect(await readPage('v2.0.0')).toBe(page(wrapper('v2.0.0')));
+    expect(await readPage('v1.0.0')).toBe(page(wrapper('v1.0.0')));
+    expect(await readPage('v0.9.0')).toBe(page(''));
   });
 });
