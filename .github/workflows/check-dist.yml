@@ -19,8 +19,9 @@ jobs:
       # [LAW:one-source-of-truth] Build on the Node major the Action runs on: action.yml runs.using.
       - id: runtime
         run: |
-          major=$(sed -n "s/^ *using: *'node\([0-9]*\)'.*/\1/p" action.yml)
-          [[ -n "$major" ]] || { echo "ERROR: no node runtime in action.yml runs.using" >&2; exit 1; }
+          using=$(yq '.runs.using' action.yml)
+          major=${using#node}
+          [[ "$major" =~ ^[0-9]+$ ]] || { echo "ERROR: action.yml runs.using is '$using', not nodeNN" >&2; exit 1; }
           echo "node=$major" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v5
         with:

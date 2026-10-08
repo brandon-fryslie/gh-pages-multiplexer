@@ -7,13 +7,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 rm -rf dist
+# A failed build must not leave the Action's entrypoint deleted in the working tree.
+trap 'git checkout -- dist' ERR
 pnpm run build
+trap - ERR
 
-stale=$(git status --porcelain --untracked-files=all -- dist)
+# Compared against the index, so a rebuilt dist/ that is staged but not yet committed passes.
+stale=$(git diff --stat -- dist; git ls-files --others --exclude-standard -- dist)
 if [[ -n "$stale" ]]; then
-  echo "ERROR: dist/ is stale: it differs from a fresh build of src/." >&2
+  echo "ERROR: dist/ is stale: it differs from a fresh build of src/, the lockfile, and rollup.config.ts." >&2
   echo "$stale" >&2
-  git --no-pager diff --stat -- dist >&2
   echo "Fix: pnpm install --frozen-lockfile && pnpm run build, then commit dist/." >&2
   exit 1
 fi
