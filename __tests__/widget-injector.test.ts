@@ -27,6 +27,7 @@ afterEach(async () => {
 });
 
 const opts = {
+  siteRoot: '/repo/',
   manifestPath: 'versions.json',
   indexPath: '_versions/',
   currentVersion: 'v1.0.0',
@@ -38,19 +39,20 @@ const opts = {
 
 describe('getWidgetScriptTag (pure)', () => {
   it('Test 1: contains marker comment', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     expect(out).toContain(WIDGET_MARKER);
     expect(out).toContain('<!-- gh-pages-multiplexer:nav-widget -->');
   });
 
   it('Test 2: is a script element', () => {
-    const out = getWidgetScriptTag(opts, '../').trim();
+    const out = getWidgetScriptTag(opts).trim();
     expect(out.startsWith('<script')).toBe(true);
     expect(out.endsWith('</script>')).toBe(true);
   });
 
   it('Test 3: inlines opts values', () => {
     const out = getWidgetScriptTag({
+      siteRoot: '/repo/',
       manifestPath: 'versions.json',
       indexPath: '_versions/',
       currentVersion: 'v1.2.3',
@@ -58,26 +60,27 @@ describe('getWidgetScriptTag (pure)', () => {
       label: '',
       position: '',
       color: '',
-    }, '../');
-    expect(out).toContain('versions.json');
-    expect(out).toContain('_versions/');
+    });
+    expect(out).toContain('"/repo/"');
+    expect(out).toContain('"/repo/versions.json"');
+    expect(out).toContain('"/repo/_versions/"');
     expect(out).toContain('v1.2.3');
   });
 
   it('Test 4: contains custom element name gh-pm-nav', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     expect(out).toContain('gh-pm-nav');
   });
 
   it('Test 5: uses Shadow DOM mode open', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     const hasOpen =
       /mode:\s*['"]open['"]/.test(out);
     expect(hasOpen).toBe(true);
   });
 
   it('Test 6: IIFE-wrapped, no top-level globals', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     // Extract body between first <script...> and last </script>
     const bodyMatch = out.match(/<script[^>]*>([\s\S]*)<\/script>\s*$/);
     expect(bodyMatch).not.toBeNull();
@@ -93,7 +96,7 @@ describe('getWidgetScriptTag (pure)', () => {
   });
 
   it('Test 7: contains no external network references at injection time', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     expect(out).not.toMatch(/\bsrc=/);
     expect(out).not.toMatch(/<link\b/);
     expect(out).not.toMatch(/import\(['"]http/);
@@ -103,6 +106,7 @@ describe('getWidgetScriptTag (pure)', () => {
   it('Test 8: escapes currentVersion to prevent script breakout', () => {
     const evil = "v1'\"</script>";
     const out = getWidgetScriptTag({
+      siteRoot: '/repo/',
       manifestPath: 'versions.json',
       indexPath: '_versions/',
       currentVersion: evil,
@@ -110,7 +114,7 @@ describe('getWidgetScriptTag (pure)', () => {
       label: '',
       position: '',
       color: '',
-    }, '../');
+    });
     // first </script> must be at the very end
     const firstClose = out.indexOf('</script>');
     const lastClose = out.lastIndexOf('</script>');
@@ -121,7 +125,7 @@ describe('getWidgetScriptTag (pure)', () => {
 
   it('Test 21: custom icon SVG is inlined and resolvable at runtime', () => {
     const customIcon = '<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>';
-    const out = getWidgetScriptTag({ ...opts, icon: customIcon }, '../');
+    const out = getWidgetScriptTag({ ...opts, icon: customIcon });
     // The SVG markup ends up inside a JS string in the inlined script.
     // JSON.stringify escapes some chars; we just confirm a recognizable substring.
     expect(out).toContain('circle cx');
@@ -131,24 +135,24 @@ describe('getWidgetScriptTag (pure)', () => {
   it('Test 22: custom label with {version} token gets the placeholder substituted at runtime', () => {
     // We can't run the JS here, but we can verify the substitution code is present
     // and the literal label template is inlined.
-    const out = getWidgetScriptTag({ ...opts, label: 'Docs {version}' }, '../');
+    const out = getWidgetScriptTag({ ...opts, label: 'Docs {version}' });
     expect(out).toContain('Docs {version}');
     expect(out).toContain("LABEL_TEMPLATE.split('{version}').join(CURRENT)");
   });
 
   it('Test 23: custom widget-position is inlined verbatim', () => {
-    const out = getWidgetScriptTag({ ...opts, position: 'left 50%' }, '../');
+    const out = getWidgetScriptTag({ ...opts, position: 'left 50%' });
     expect(out).toContain('left 50%');
   });
 
   it('Test 24: custom widget-color is inlined and applied to --handle-bg at runtime', () => {
-    const out = getWidgetScriptTag({ ...opts, color: '#10b981' }, '../');
+    const out = getWidgetScriptTag({ ...opts, color: '#10b981' });
     expect(out).toContain('#10b981');
     expect(out).toContain("setProperty('--handle-bg'");
   });
 
   it('Test 25: defaults are used when opts fields are empty strings', () => {
-    const out = getWidgetScriptTag(opts, '../');
+    const out = getWidgetScriptTag(opts);
     // Default icon: layers SVG paths
     expect(out).toContain('M12.83 2.18');
     // Default label template: {version}
@@ -160,7 +164,7 @@ describe('getWidgetScriptTag (pure)', () => {
   });
 
   it('Test 9: deterministic / pure', () => {
-    expect(getWidgetScriptTag(opts, '../')).toBe(getWidgetScriptTag(opts, '../'));
+    expect(getWidgetScriptTag(opts)).toBe(getWidgetScriptTag(opts));
   });
 });
 
@@ -309,7 +313,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
     const n = await injectWidgetIntoHtmlFiles(workdir, opts);
     expect(n).toEqual({ inserted: 1, refreshed: 1, current: 0 });
     expect(await readFile(stale, 'utf8')).toBe(
-      `<html><body><p>keep</p>${getWidgetScriptTag(opts, '../')}<footer>also</footer></body></html>`,
+      `<html><body><p>keep</p>${getWidgetScriptTag(opts)}<footer>also</footer></body></html>`,
     );
     expect(await readFile(fresh, 'utf8')).toContain(WIDGET_MARKER);
   });
@@ -317,7 +321,7 @@ describe('injectWidgetIntoHtmlFiles (I/O)', () => {
   it('Test 20b: the rendered widget closes its script exactly once, at its end', () => {
     // Refreshing relies on this: a block ends at the first </script> after its marker.
     const hostile = { ...opts, currentVersion: '</script><b>x', label: '</script>', icon: '<svg></svg>' };
-    const tag = getWidgetScriptTag(hostile, '../');
+    const tag = getWidgetScriptTag(hostile);
     expect(tag.indexOf('</script>')).toBe(tag.length - '</script>'.length);
   });
 
@@ -334,8 +338,7 @@ describe('injected widget at runtime', () => {
   type Decision = { site: string; sameOriginAncestors: number; mounted: boolean; yieldedTo: string | null };
 
   const SITE = 'https://u.github.io/repo/v1.0.0/';
-  const WIDGET = getWidgetScriptTag(opts, '../');
-  const NESTED_WIDGET = getWidgetScriptTag(opts, '../../');
+  const WIDGET = getWidgetScriptTag(opts);
   const page = (body: string): string => `<!doctype html><html><body>${body}</body></html>`;
   const widgetBody = (): string => {
     const m = /^<script>([\s\S]*)<\/script>$/.exec(WIDGET);
@@ -407,15 +410,15 @@ describe('injected widget at runtime', () => {
     (nav.querySelector('.handle') as HTMLElement).click();
     await vi.waitFor(() => expect(nav.querySelector('a.row')).not.toBeNull());
 
-    expect(fetched).toEqual(['https://u.github.io/repo/versions.json']);
-    expect(nav.querySelector('.index-link')!.getAttribute('href')).toBe('https://u.github.io/repo/_versions/');
-    expect(nav.querySelector('a.row')!.getAttribute('href')).toBe('https://u.github.io/repo/v2.0.0/');
+    expect(fetched).toEqual(['/repo/versions.json']);
+    expect(nav.querySelector('.index-link')!.getAttribute('href')).toBe('/repo/_versions/');
+    expect(nav.querySelector('a.row')!.getAttribute('href')).toBe('/repo/v2.0.0/');
   });
 
   it('mounts one switcher in a top-level page', async () => {
     const { dom, decided, navs } = load(SITE, { [SITE]: page(WIDGET) });
     expect(await decided(1)).toEqual([
-      { site: '/repo/', sameOriginAncestors: 0, mounted: true, yieldedTo: null },
+      { site: '/repo', sameOriginAncestors: 0, mounted: true, yieldedTo: null },
     ]);
     expect(navs(dom.window.document)).toBe(1);
   });
@@ -423,10 +426,10 @@ describe('injected widget at runtime', () => {
   it('leaves the switcher to a parent running the same site\'s widget, at any depth', async () => {
     const { dom, decided, navs, frame } = load(SITE, {
       [SITE]: page(`<iframe src="demo/live.html"></iframe>${WIDGET}`),
-      [`${SITE}demo/live.html`]: page(NESTED_WIDGET),
+      [`${SITE}demo/live.html`]: page(WIDGET),
     });
     expect(await decided(2)).toContainEqual(
-      { site: '/repo/', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
+      { site: '/repo', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
     );
     expect(navs(dom.window.document)).toBe(1);
     expect(navs(frame())).toBe(0);
@@ -440,7 +443,7 @@ describe('injected widget at runtime', () => {
       [SITE]: page(WIDGET),
     });
     expect(await decided(1)).toEqual([
-      { site: '/repo/', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
+      { site: '/repo', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
     ]);
     expect(navs(frame())).toBe(1);
   });
@@ -448,11 +451,11 @@ describe('injected widget at runtime', () => {
   it('mounts in a frame whose same-origin parent runs another site\'s widget', async () => {
     const other = 'https://u.github.io/other/v1.0.0/';
     const { decided, navs, frame } = load(other, {
-      [other]: page(`<iframe src="${SITE}"></iframe>${WIDGET}`),
+      [other]: page(`<iframe src="${SITE}"></iframe>${getWidgetScriptTag({ ...opts, siteRoot: '/other/' })}`),
       [SITE]: page(WIDGET),
     });
     expect(await decided(2)).toContainEqual(
-      { site: '/repo/', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
+      { site: '/repo', sameOriginAncestors: 1, mounted: true, yieldedTo: null },
     );
     expect(navs(frame())).toBe(1);
   });
@@ -467,14 +470,14 @@ describe('injected widget at runtime', () => {
         `<iframe src="demo/live.html" onload="console.log('frame-loaded')"></iframe>` +
           `<script src="widget.js"></script>`,
       ),
-      [`${SITE}demo/live.html`]: page(NESTED_WIDGET),
+      [`${SITE}demo/live.html`]: page(WIDGET),
       [`${SITE}widget.js`]: held,
     });
     virtualConsole.on('log', (msg: string) => {
       if (msg === 'frame-loaded') release(widgetBody());
     });
     expect(await decided(2)).toContainEqual(
-      { site: '/repo/', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
+      { site: '/repo', sameOriginAncestors: 1, mounted: false, yieldedTo: SITE },
     );
     expect(navs(dom.window.document)).toBe(1);
     expect(navs(frame())).toBe(0);

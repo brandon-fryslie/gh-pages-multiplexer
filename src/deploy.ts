@@ -135,6 +135,9 @@ async function renderDeployment(
   // Stage 4: Place content (copy + base path correction + .nojekyll).
   await placeContent(workdir, config.sourceDir, context, config.basePathMode);
 
+  // The URL path the gh-pages root is served from: the slot's base path with the slot removed.
+  const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
+
   // Stage 4.5: Place the current navigation widget in every HTML page of every slot in the manifest.
   // [LAW:dataflow-not-control-flow] Always runs after placeContent in the same order every deploy.
   // [LAW:single-enforcer] Goes through branch-manager.injectWidgetIntoSlots -- the only writer to
@@ -142,6 +145,7 @@ async function renderDeployment(
   // NAVW-01..05: widget injection lands in the same atomic commit as the manifest and root index.
   const widget = await injectWidgetIntoSlots(
     workdir,
+    siteRoot,
     cleanedManifest.versions.map((v) => v.version),
     {
       icon: config.widgetIcon,
@@ -169,7 +173,6 @@ async function renderDeployment(
   //   null PR slot = zero noindex injections. No guarded skips.
   const owner = config.repo.includes('/') ? config.repo.split('/')[0] : config.repo;
   const baseUrl = cnameDomain !== null ? `https://${cnameDomain}` : `https://${owner}.github.io`;
-  const siteRoot = context.basePath.slice(0, context.basePath.length - (context.versionSlot.length + 1));
   const siteBase = `${baseUrl}${siteRoot}`.replace(/\/$/, '');
   const latestSlot = latestNonPrSlot(cleanedManifest);
   const latestNonPrSiteBase = latestSlot ? `${siteBase}/${latestSlot}` : null;

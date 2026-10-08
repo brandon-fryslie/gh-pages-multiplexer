@@ -281,7 +281,7 @@ export async function writeIndexHtml(
 // function is the sole I/O enforcer that lands the script tag in deployed HTML files.
 // [LAW:one-source-of-truth] Every slot is re-placed on every deploy, so each slot's pages carry the
 // widget this deploy renders, not the one current when that slot was last deployed. The widget's
-// links are paths from the site root, the layout this module writes.
+// links are the layout this module writes, under siteRoot (the URL path gh-pages is served from).
 export interface WidgetCustomization {
   icon: string;     // empty string means use default
   label: string;    // empty string means use default
@@ -291,12 +291,14 @@ export interface WidgetCustomization {
 
 export async function injectWidgetIntoSlots(
   workdir: string,
+  siteRoot: string,
   slots: string[],
   customization: WidgetCustomization,
 ): Promise<WidgetPlacementCounts> {
   const total = emptyPlacementCounts();
   for (const slot of slots) {
     addPlacementCounts(total, await injectWidgetIntoHtmlFiles(path.join(workdir, slot), {
+      siteRoot,
       manifestPath: 'versions.json',
       indexPath: '_versions/',
       currentVersion: slot,
