@@ -8,7 +8,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
-import { findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import { findHtmlFilesRelative, findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
 
 export const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
 export const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
@@ -61,15 +61,15 @@ export async function injectCanonicalIntoDir(
   siteBase: string,
   canonicalSlot: string,
 ): Promise<number> {
-  const htmlFiles = await findSlotHtmlFiles(versionDir);
-  if (htmlFiles.length === 0) {
+  const relPaths = await findHtmlFilesRelative(versionDir);
+  if (relPaths.length === 0) {
     core.info(`0 HTML files in ${versionDir}, no canonical injection needed`);
     return 0;
   }
 
   let count = 0;
-  for (const file of htmlFiles) {
-    const rel = path.relative(versionDir, file).split(path.sep).join('/');
+  for (const rel of relPaths) {
+    const file = path.join(versionDir, rel);
     const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
 
     const original = await readFile(file, 'utf8');

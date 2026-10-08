@@ -3,10 +3,9 @@
 //   sitemap would contradict that).
 // [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
 //   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
-import path from 'node:path';
 import type { Manifest } from './types.js';
 import { escapeHtml } from './index-renderer.js';
-import { findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import { slotPageUrl } from './slot-pages.js';
 
 const PR_VERSION_RE = /^pr-\d+$/;
 
@@ -17,15 +16,6 @@ const PR_VERSION_RE = /^pr-\d+$/;
 export function latestNonPrSlot(manifest: Manifest): string | null {
   const entry = manifest.versions.find((v) => !PR_VERSION_RE.test(v.version));
   return entry ? entry.version : null;
-}
-
-/**
- * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
- * (e.g. "docs/api.html"). A slot with no directory has no pages.
- */
-export async function findHtmlFilesRelative(slotDir: string): Promise<string[]> {
-  const files = await findSlotHtmlFiles(slotDir);
-  return files.map((file) => path.relative(slotDir, file).split(path.sep).join('/')).sort();
 }
 
 /**

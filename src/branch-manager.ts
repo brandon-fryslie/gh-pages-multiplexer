@@ -16,13 +16,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SourceRepo, WrapperCoverage } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SitemapCoverage, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
-import { emptyPlacementCounts, addPlacementCounts } from './slot-pages.js';
+import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative } from './slot-pages.js';
 import { renderRobotsTxt } from './robots-generator.js';
 import {
-  findHtmlFilesRelative,
   latestNonPrSlot,
   renderEmptySitemap,
   renderSitemapXml,
@@ -358,19 +357,19 @@ export async function writeSitemapXml(
   manifest: Manifest,
   baseUrl: string,
   lastmod: string,
-): Promise<void> {
+): Promise<SitemapCoverage> {
   const slot = latestNonPrSlot(manifest);
   let xml: string;
-  let urlCount = 0;
+  let urls = 0;
   if (slot === null) {
     xml = renderEmptySitemap();
   } else {
     const relPaths = await findHtmlFilesRelative(path.join(workdir, slot));
     xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
-    urlCount = relPaths.length;
+    urls = relPaths.length;
   }
   await writeFile(path.join(workdir, 'sitemap.xml'), xml, 'utf8');
-  core.info(`Sitemap: ${urlCount} URL(s) from ${slot ?? 'no non-PR version'}`);
+  return { slot, urls };
 }
 
 /**

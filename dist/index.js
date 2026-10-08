@@ -37800,13 +37800,21 @@ async function findSlotHtmlFiles(slotDir) {
     }
 }
 /**
- * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`. Slot and
- * page names are filesystem names, so every path segment is percent-encoded: a space or `#` in a name
- * must not end up raw in the URL.
+ * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
+ * (e.g. "docs/api.html"). A slot with no directory has no pages.
+ */
+async function findHtmlFilesRelative(slotDir) {
+    const files = await findSlotHtmlFiles(slotDir);
+    return files.map((file) => path__namespace$1.relative(slotDir, file).split(path__namespace$1.sep).join('/')).sort();
+}
+/**
+ * The absolute URL of the page at `relPath` ("docs/my page.html") in `slot`, under `siteBase`
+ * ("https://example.com/repo", no trailing slash). Slot and page names are filesystem names, so every
+ * path segment is percent-encoded: a space or `#` in a name must not end up raw in the URL.
  */
 function slotPageUrl(siteBase, slot, relPath) {
     const segments = [slot, ...relPath.split('/')];
-    return `${siteBase.replace(/\/$/, '')}/${segments.map(encodeURIComponent).join('/')}`;
+    return `${siteBase}/${segments.map(encodeURIComponent).join('/')}`;
 }
 const SCRIPT_CLOSE = '</script>';
 /**
@@ -38351,11 +38359,6 @@ function renderRobotsTxt(manifest, siteRoot) {
     return lines.join('\n');
 }
 
-// [LAW:one-source-of-truth] The sitemap reflects the latest non-PR version only.
-//   PR previews are explicitly excluded (they're noindex-tagged; listing them in a
-//   sitemap would contradict that).
-// [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
-//   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
 const PR_VERSION_RE$2 = /^pr-\d+$/;
 /**
  * Find the most recently deployed non-PR version slot. Returns null when no
@@ -38364,14 +38367,6 @@ const PR_VERSION_RE$2 = /^pr-\d+$/;
 function latestNonPrSlot(manifest) {
     const entry = manifest.versions.find((v) => !PR_VERSION_RE$2.test(v.version));
     return entry ? entry.version : null;
-}
-/**
- * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
- * (e.g. "docs/api.html"). A slot with no directory has no pages.
- */
-async function findHtmlFilesRelative(slotDir) {
-    const files = await findSlotHtmlFiles(slotDir);
-    return files.map((file) => path$1.relative(slotDir, file).split(path$1.sep).join('/')).sort();
 }
 /**
  * Render a sitemap.xml for the given set of relative URLs, rooted under a
@@ -38661,14 +38656,14 @@ function insertInHead(html, tag) {
  * Returns the count of files mutated.
  */
 async function injectCanonicalIntoDir(versionDir, siteBase, canonicalSlot) {
-    const htmlFiles = await findSlotHtmlFiles(versionDir);
-    if (htmlFiles.length === 0) {
+    const relPaths = await findHtmlFilesRelative(versionDir);
+    if (relPaths.length === 0) {
         info(`0 HTML files in ${versionDir}, no canonical injection needed`);
         return 0;
     }
     let count = 0;
-    for (const file of htmlFiles) {
-        const rel = path$1.relative(versionDir, file).split(path$1.sep).join('/');
+    for (const rel of relPaths) {
+        const file = path$1.join(versionDir, rel);
         const tag = buildCanonicalTag(slotPageUrl(siteBase, canonicalSlot, rel));
         const original = await promises.readFile(file, 'utf8');
         // Remove any of our previously-injected canonicals (handles update-on-latest-change).
@@ -39144,17 +39139,17 @@ async function writeRobotsTxt(workdir, manifest, siteRoot) {
 async function writeSitemapXml(workdir, manifest, baseUrl, lastmod) {
     const slot = latestNonPrSlot(manifest);
     let xml;
-    let urlCount = 0;
+    let urls = 0;
     if (slot === null) {
         xml = renderEmptySitemap();
     }
     else {
         const relPaths = await findHtmlFilesRelative(path__namespace$1.join(workdir, slot));
         xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
-        urlCount = relPaths.length;
+        urls = relPaths.length;
     }
     await promises.writeFile(path__namespace$1.join(workdir, 'sitemap.xml'), xml, 'utf8');
-    info(`Sitemap: ${urlCount} URL(s) from ${slot ?? 'no non-PR version'}`);
+    return { slot, urls };
 }
 /**
  * Write _health.json at the worktree root. Pure projection of the manifest +
@@ -39506,6 +39501,7 @@ async function deploy(config, source) {
                 attempts: attempt,
                 widget: rendered.widget,
                 storageWrapper: rendered.storageWrapper,
+                sitemap: rendered.sitemap,
             };
         }
         lostOn = { tip, rejection: published.rejection };
@@ -39517,7 +39513,8 @@ function deploySummary(result) {
     const placed = ({ inserted, refreshed, current }) => `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
         `nav widget ${placed(result.widget)}; ` +
-        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
+        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version}; ` +
+        `sitemap ${result.sitemap.urls} URL(s) from ${result.sitemap.slot ?? 'no non-PR version'})`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -39606,10 +39603,10 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     // Written at the worktree root. Stats dashboard lives under _versions/.
     // [LAW:dataflow-not-control-flow] All four writes run every deploy; content varies with manifest.
     await writeRobotsTxt(workdir, cleanedManifest, siteRoot);
-    await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
+    const sitemap = await writeSitemapXml(workdir, cleanedManifest, siteBase, context.timestamp);
     await writeHealthJson(workdir, cleanedManifest, context.timestamp);
     await writeStatsHtml(workdir, { owner: repoOwner, repo: repoName });
-    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper };
+    return { context, url: `${baseUrl}${context.basePath}`, removedVersions: staleVersions, widget, storageWrapper, sitemap };
 }
 
 // [LAW:one-source-of-truth] PREVIEW_COMMENT_MARKER is the sole identity check for "this is the

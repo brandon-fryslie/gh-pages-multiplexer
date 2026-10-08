@@ -1,10 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 import {
   latestNonPrSlot,
-  findHtmlFilesRelative,
   renderSitemapXml,
   renderEmptySitemap,
 } from '../src/sitemap-generator.js';
@@ -36,48 +32,6 @@ describe('latestNonPrSlot', () => {
 
   it('returns null for empty manifest', () => {
     expect(latestNonPrSlot({ schema: 2, versions: [] })).toBeNull();
-  });
-});
-
-describe('findHtmlFilesRelative', () => {
-  let dir: string;
-
-  beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), 'sitemap-'));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it('finds HTML files at the root, sorted', async () => {
-    await writeFile(path.join(dir, 'b.html'), '');
-    await writeFile(path.join(dir, 'a.html'), '');
-    expect(await findHtmlFilesRelative(dir)).toEqual(['a.html', 'b.html']);
-  });
-
-  it('finds HTML files in nested directories', async () => {
-    await mkdir(path.join(dir, 'docs', 'api'), { recursive: true });
-    await writeFile(path.join(dir, 'index.html'), '');
-    await writeFile(path.join(dir, 'docs', 'index.html'), '');
-    await writeFile(path.join(dir, 'docs', 'api', 'users.html'), '');
-    const result = await findHtmlFilesRelative(dir);
-    expect(result).toEqual(['docs/api/users.html', 'docs/index.html', 'index.html']);
-  });
-
-  it('ignores non-HTML files', async () => {
-    await writeFile(path.join(dir, 'index.html'), '');
-    await writeFile(path.join(dir, 'script.js'), '');
-    await writeFile(path.join(dir, 'style.css'), '');
-    expect(await findHtmlFilesRelative(dir)).toEqual(['index.html']);
-  });
-
-  it('returns empty array for missing directory', async () => {
-    expect(await findHtmlFilesRelative(path.join(dir, 'missing'))).toEqual([]);
-  });
-
-  it('propagates fs errors other than a missing slot directory', async () => {
-    await writeFile(path.join(dir, 'not-a-dir'), '');
-    await expect(findHtmlFilesRelative(path.join(dir, 'not-a-dir'))).rejects.toMatchObject({ code: 'ENOTDIR' });
   });
 });
 

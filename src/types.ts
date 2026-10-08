@@ -121,4 +121,11 @@ export interface DeployResult {
     deployedSlot: WrapperCoverage;  // the coverage namespace-storage chose for the slot this deploy published
     pages: PlacementCounts;  // what placing the current storage wrapper did to the pages of every slot
   };
+  sitemap: SitemapCoverage;
+}
+
+/** What sitemap.xml lists: the pages of one slot, or nothing when no non-PR version exists. */
+export interface SitemapCoverage {
+  slot: string | null;
+  urls: number;
 }
