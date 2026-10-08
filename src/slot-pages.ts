@@ -1,5 +1,6 @@
-// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
-//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
+// [LAW:single-enforcer] The one walk that finds a slot's pages, and the one place that re-renders a
+//   script block this action owns inside a page. Content placement, SEO tags, the sitemap, the nav
+//   widget and the storage wrapper all find a slot's pages through it.
 // [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';

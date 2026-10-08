@@ -3,10 +3,10 @@
 //   sitemap would contradict that).
 // [LAW:dataflow-not-control-flow] renderSitemapXml always runs: urls array maps
 //   to <url> elements, empty array yields a valid empty <urlset>. No guarded skips.
-import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Manifest } from './types.js';
 import { escapeHtml } from './index-renderer.js';
+import { findSlotHtmlFiles } from './slot-pages.js';
 
 const PR_VERSION_RE = /^pr-\d+$/;
 
@@ -20,26 +20,12 @@ export function latestNonPrSlot(manifest: Manifest): string | null {
 }
 
 /**
- * Walk `dir` and return absolute paths to every *.html file below it.
- * Empty directory or missing directory yields [].
+ * Every *.html page in the slot at `slotDir`, as sorted slot-relative URL paths
+ * (e.g. "docs/api.html"). A slot with no directory has no pages.
  */
-export async function findHtmlFilesRelative(root: string): Promise<string[]> {
-  const out: string[] = [];
-  async function walk(dir: string, prefix: string): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      const rel = prefix ? `${prefix}/${e.name}` : e.name;
-      if (e.isDirectory()) await walk(path.join(dir, e.name), rel);
-      else if (e.isFile() && e.name.toLowerCase().endsWith('.html')) out.push(rel);
-    }
-  }
-  await walk(root, '');
-  return out.sort();
+export async function findHtmlFilesRelative(slotDir: string): Promise<string[]> {
+  const files = await findSlotHtmlFiles(slotDir);
+  return files.map((file) => path.relative(slotDir, file).split(path.sep).join('/')).sort();
 }
 
 /**

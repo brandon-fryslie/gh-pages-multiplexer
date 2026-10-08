@@ -107,6 +107,16 @@ describe('injectNoindexIntoDir', () => {
     expect(await injectNoindexIntoDir(dir)).toBe(0);
   });
 
+  it('returns 0 for a slot with no directory', async () => {
+    expect(await injectNoindexIntoDir(path.join(dir, 'missing'))).toBe(0);
+  });
+
+  it('propagates fs errors other than a missing slot directory', async () => {
+    await writeFile(path.join(dir, 'not-a-dir'), '');
+    await expect(injectNoindexIntoDir(path.join(dir, 'not-a-dir'))).rejects.toMatchObject({ code: 'ENOTDIR' });
+    await expect(injectCanonicalIntoDir(path.join(dir, 'not-a-dir'), 'https://example.com/v1')).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
+
   it('injects after <head> opening tag', async () => {
     await writeFile(path.join(dir, 'index.html'), '<html><head><title>x</title></head><body></body></html>');
     await injectNoindexIntoDir(dir);

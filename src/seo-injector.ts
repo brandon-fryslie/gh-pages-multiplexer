@@ -5,9 +5,10 @@
 // [LAW:dataflow-not-control-flow] Walk → read → decide → write. Empty lists produce
 //   zero side effects. Variability is data (tag content), not skipped operations.
 // [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
-import { readFile, writeFile, readdir } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
+import { findSlotHtmlFiles } from './slot-pages.js';
 
 export const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
 export const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
@@ -21,25 +22,6 @@ const EXISTING_CANONICAL_BLOCK_RE = new RegExp(
 
 // Detect user-authored canonical (any `<link rel="canonical"` not preceded by our marker).
 const USER_CANONICAL_RE = /<link\s+[^>]*rel=["']canonical["'][^>]*>/i;
-
-async function findHtmlFiles(dir: string): Promise<string[]> {
-  const out: string[] = [];
-  async function walk(d: string): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(d, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const e of entries) {
-      const full = path.join(d, e.name);
-      if (e.isDirectory()) await walk(full);
-      else if (e.isFile() && e.name.toLowerCase().endsWith('.html')) out.push(full);
-    }
-  }
-  await walk(dir);
-  return out;
-}
 
 function buildCanonicalTag(url: string): string {
   // Minimal HTML escape for attribute value (URLs rarely contain these, but be safe).
@@ -78,7 +60,7 @@ export async function injectCanonicalIntoDir(
   versionDir: string,
   canonicalBase: string,
 ): Promise<number> {
-  const htmlFiles = await findHtmlFiles(versionDir);
+  const htmlFiles = await findSlotHtmlFiles(versionDir);
   if (htmlFiles.length === 0) {
     core.info(`0 HTML files in ${versionDir}, no canonical injection needed`);
     return 0;
@@ -113,7 +95,7 @@ export async function injectCanonicalIntoDir(
  * Returns the count of files newly injected.
  */
 export async function injectNoindexIntoDir(prDir: string): Promise<number> {
-  const htmlFiles = await findHtmlFiles(prDir);
+  const htmlFiles = await findSlotHtmlFiles(prDir);
   if (htmlFiles.length === 0) {
     core.info(`0 HTML files in ${prDir}, no noindex injection needed`);
     return 0;
