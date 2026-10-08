@@ -184,7 +184,7 @@ describe('concurrent deploys', () => {
     getExecOutputMock.mockImplementation(async (cmd, args, opts) => {
       if (args?.[0] === 'push' && pushes++ < races) {
         const tip = await git(root, '--git-dir', remote, 'rev-parse', TARGET);
-        const moved = await git(root, '--git-dir', remote, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'other deploy');
+        const moved = await git(root, '-c', 'user.name=t', '-c', 'user.email=t@t', '--git-dir', remote, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'other deploy');
         await git(root, '--git-dir', remote, 'update-ref', `refs/heads/${TARGET}`, moved);
       }
       return realGetExecOutput(cmd, args, opts);

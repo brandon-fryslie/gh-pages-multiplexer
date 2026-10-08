@@ -36,6 +36,8 @@ describe('parseInputs', () => {
     vi.resetAllMocks();
     process.env.GITHUB_REPOSITORY = 'owner/repo';
     process.env.GITHUB_REF = 'refs/heads/main';
+    // A pull_request runner exports GITHUB_BASE_REF; these tests model a push.
+    delete process.env.GITHUB_BASE_REF;
   });
 
   afterEach(() => {
