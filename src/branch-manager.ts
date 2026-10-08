@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SourceRepo } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
 import { emptyPlacementCounts, addPlacementCounts } from './slot-pages.js';
@@ -30,7 +30,7 @@ import {
 import { renderHealth, serializeHealth } from './health-generator.js';
 import { renderStatsHtml } from './stats-renderer.js';
 import { injectCanonicalIntoDir, injectNoindexIntoDir } from './seo-injector.js';
-import { placeStorageWrapperInSlot, type WrapperCoverage } from './storage-wrapper-injector.js';
+import { placeStorageWrapperInSlot } from './storage-wrapper-injector.js';
 import { autoNamespace } from './storage-wrapper.js';
 
 // GIT_AUTHOR_*/GIT_COMMITTER_* outrank any user.name/user.email config, so a deploy commit's identity
@@ -316,8 +316,8 @@ export interface SlotWrapperCoverage {
 
 /**
  * Place the current storage wrapper in each listed slot. The wrapper installs a Proxy around
- * window.localStorage and window.sessionStorage that prefixes every key with
- * `gh-pm:<owner>/<repo>/<slot>:`.
+ * window.localStorage and window.sessionStorage that prefixes every key with a namespace: the one a
+ * page's wrapper already carries, or `gh-pm:<owner>/<repo>/<slot>:` for a page wrapped now.
  */
 export async function placeStorageWrapperInSlots(
   workdir: string,

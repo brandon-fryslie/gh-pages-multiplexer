@@ -1,5 +1,5 @@
-// [LAW:single-enforcer] The one place that finds a slot's pages and re-renders a script block this action
-//   owns inside a page. The nav widget and the storage wrapper both place their blocks through it.
+// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
+//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
 // [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
 import { readdir } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -38,16 +38,22 @@ export interface PlacedPage {
 const SCRIPT_CLOSE = '</script>';
 
 /**
- * Replaces the block in `html` that opens with `open` by `block`. Every block this action has ever
- * emitted ends at the first </script> after its opening: each renderer escapes `</` in the values it
- * inlines. Null when the page carries no such block.
+ * Replaces the block in `html` that opens with `open` by `render(existing block)`. Every block this
+ * action has ever emitted ends at the first </script> after its opening: each renderer escapes `</`
+ * in the values it inlines. Null when the page carries no such block.
  */
-export function refreshBlock(html: string, open: string, block: string, filePath: string): PlacedPage | null {
+export function refreshBlock(
+  html: string,
+  open: string,
+  render: (existing: string) => string,
+  filePath: string,
+): PlacedPage | null {
   const start = html.indexOf(open);
   if (start === -1) return null;
   const close = html.indexOf(SCRIPT_CLOSE, start);
   if (close === -1) throw new Error(`${filePath}: block opening ${JSON.stringify(open)} has no closing ${SCRIPT_CLOSE}`);
-  const placed = html.slice(0, start) + block + html.slice(close + SCRIPT_CLOSE.length);
+  const end = close + SCRIPT_CLOSE.length;
+  const placed = html.slice(0, start) + render(html.slice(start, end)) + html.slice(end);
   return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
 }
 

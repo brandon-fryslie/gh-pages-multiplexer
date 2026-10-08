@@ -41,14 +41,21 @@ describe('placeStorageWrapperInSlot', () => {
     expect(await readFile(path.join(dir, 'index.html'), 'utf8')).toBe(page(tag));
   });
 
-  it('wrapped-pages: re-renders a stale wrapper block and leaves a page without one untouched', async () => {
-    const stale = `${STORAGE_WRAPPER_MARKER}<script>var OLD_WRAPPER;</script>`;
+  it('wrapped-pages: re-renders a stale wrapper block with the namespace it carries, and leaves a page without one untouched', async () => {
+    const stale = `${STORAGE_WRAPPER_MARKER}<script>(function(){\nvar NS = "gh-pm:Acme/Widgets/v1:";\nvar OLD_WRAPPER;\n})();</script>`;
     await writeFile(path.join(dir, 'wrapped.html'), page(stale));
     await writeFile(path.join(dir, 'plain.html'), page(''));
 
     expect(await placeStorageWrapperInSlot(dir, opts, 'wrapped-pages')).toEqual({ inserted: 0, refreshed: 1, current: 0 });
-    expect(await readFile(path.join(dir, 'wrapped.html'), 'utf8')).toBe(page(tag));
+    expect(await readFile(path.join(dir, 'wrapped.html'), 'utf8')).toBe(
+      page(renderStorageWrapperScriptTag({ namespace: 'gh-pm:Acme/Widgets/v1:' })),
+    );
     expect(await readFile(path.join(dir, 'plain.html'), 'utf8')).toBe(page(''));
+  });
+
+  it('fails loudly on a wrapper block that declares no namespace', async () => {
+    await writeFile(path.join(dir, 'index.html'), page(`${STORAGE_WRAPPER_MARKER}<script>var OLD_WRAPPER;</script>`));
+    await expect(placeStorageWrapperInSlot(dir, opts, 'wrapped-pages')).rejects.toThrow(/declares no namespace/);
   });
 
   it('inserts at the very start of <head>, before any user script', async () => {
@@ -59,10 +66,27 @@ describe('placeStorageWrapperInSlot', () => {
     );
   });
 
-  it('wraps a document with no <head> in one', async () => {
-    await writeFile(path.join(dir, 'index.html'), '<html><body>hi</body></html>');
+  it.each([
+    ['<html><body>hi</body></html>', `<html>${tag}<body>hi</body></html>`],
+    [
+      '<!doctype html><title>x</title><script>localStorage.foo=1</script><body><header>h</header></body>',
+      `<!doctype html>${tag}<title>x</title><script>localStorage.foo=1</script><body><header>h</header></body>`,
+    ],
+    ['<!-- built --> <!DOCTYPE html>\n<html lang="en"><p>x', `<!-- built --> <!DOCTYPE html>\n<html lang="en">${tag}<p>x`],
+    ['<p>bare', `${tag}<p>bare`],
+  ])('a page that omits <head> gets the wrapper after its doctype and <html> start tag: %s', async (html, expected) => {
+    await writeFile(path.join(dir, 'index.html'), html);
     await placeStorageWrapperInSlot(dir, opts, 'every-page');
-    expect(await readFile(path.join(dir, 'index.html'), 'utf8')).toBe(`<head>${tag}</head><html><body>hi</body></html>`);
+    expect(await readFile(path.join(dir, 'index.html'), 'utf8')).toBe(expected);
+  });
+
+  it('places the wrapper in <head>, not in an earlier-matching <header>', async () => {
+    const html = '<html><head data-x="1"><script>a()</script></head><body><header>h</header></body></html>';
+    await writeFile(path.join(dir, 'index.html'), html);
+    await placeStorageWrapperInSlot(dir, opts, 'every-page');
+    expect(await readFile(path.join(dir, 'index.html'), 'utf8')).toBe(
+      `<html><head data-x="1">${tag}<script>a()</script></head><body><header>h</header></body></html>`,
+    );
   });
 
   it('a slot with no HTML files, or no directory, has zero pages', async () => {

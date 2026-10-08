@@ -9,7 +9,7 @@
 //   in how they gather DeployConfig.
 // [LAW:variability-at-edges] Pipeline core stays fixed; adapters handle CI-specific quirks.
 import * as core from '@actions/core';
-import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts } from './types.js';
+import type { DeployConfig, DeployResult, DeploymentContext, ManifestEntry, SourceRepo, PlacementCounts, WrapperCoverage } from './types.js';
 import { resolveContext } from './ref-resolver.js';
 import {
   withWorktree,
@@ -82,7 +82,8 @@ export function deploySummary(result: DeployResult): string {
   const placed = ({ inserted, refreshed, current }: PlacementCounts): string =>
     `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
   return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
-    `nav widget ${placed(result.widget)}; storage wrapper ${placed(result.storageWrapper)})`;
+    `nav widget ${placed(result.widget)}; ` +
+    `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
 }
 
 /**
@@ -94,7 +95,7 @@ async function renderDeployment(
   workdir: string,
   config: DeployConfig,
   sourceRepoDir: string,
-): Promise<{ context: DeploymentContext; url: string; widget: PlacementCounts; storageWrapper: PlacementCounts }> {
+): Promise<{ context: DeploymentContext; url: string; widget: PlacementCounts; storageWrapper: DeployResult['storageWrapper'] }> {
   // Stage 2: Resolve ref context. CNAME presence affects basePath computation.
   const cnameDomain = await readCnameFile(workdir);
   const context = resolveContext(config, cnameDomain !== null);
@@ -159,16 +160,18 @@ async function renderDeployment(
 
   // Stage 4.6: Place the current storage wrapper, which namespaces localStorage and sessionStorage so
   // repos on the same *.github.io origin don't collide. namespace-storage decides the deployed slot
-  // only: its pages were just placed and carry no wrapper yet. Every other slot keeps the choice its own
-  // deploy made, recorded in its pages, and only has its wrappers re-rendered.
-  const storageWrapper = await placeStorageWrapperInSlots(
+  // only: its pages were just placed from the build. Every other slot keeps the choice its own deploy
+  // made, recorded in its pages, and only has its wrappers re-rendered.
+  const deployedSlot: WrapperCoverage = config.namespaceStorage ? 'every-page' : 'wrapped-pages';
+  const storageWrapperPages = await placeStorageWrapperInSlots(
     workdir,
     { owner: repoOwner, repo: repoName },
     cleanedManifest.versions.map((v) => ({
       slot: v.version,
-      coverage: v.version === context.versionSlot && config.namespaceStorage ? 'every-page' : 'wrapped-pages',
+      coverage: v.version === context.versionSlot ? deployedSlot : 'wrapped-pages',
     })),
   );
+  const storageWrapper = { deployedSlot, pages: storageWrapperPages };
 
   // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
   // latest non-PR); noindex on the current PR directory (if this deploy is a PR).

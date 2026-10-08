@@ -313,9 +313,11 @@ describe('placeStorageWrapperInSlots', () => {
   }
   const readPage = (slot: string): Promise<string> => fsReadFile(path.join(workdir, slot, 'index.html'), 'utf8');
 
-  it('re-renders an older slot\'s stale wrapper under that slot\'s own namespace and leaves an unwrapped slot unwrapped', async () => {
+  it('re-renders an older slot\'s stale wrapper under the namespace it was deployed with and leaves an unwrapped slot unwrapped', async () => {
     await writePage('v2.0.0', page(''));
-    await writePage('v1.0.0', page(`${STORAGE_WRAPPER_MARKER}<script>var OLD_WRAPPER;</script>`));
+    // Deployed under a different spelling of the repo slug: its users' data lives under that namespace.
+    const deployedNamespace = autoNamespace('Acme', 'Widgets', 'v1.0.0');
+    await writePage('v1.0.0', page(`${STORAGE_WRAPPER_MARKER}<script>(function(){\nvar NS = ${JSON.stringify(deployedNamespace)};\nvar OLD_WRAPPER;\n})();</script>`));
     await writePage('v0.9.0', page(''));
 
     const placed = await placeStorageWrapperInSlots(workdir, repoMeta, [
@@ -326,7 +328,7 @@ describe('placeStorageWrapperInSlots', () => {
 
     expect(placed).toEqual({ inserted: 1, refreshed: 1, current: 0 });
     expect(await readPage('v2.0.0')).toBe(page(wrapper('v2.0.0')));
-    expect(await readPage('v1.0.0')).toBe(page(wrapper('v1.0.0')));
+    expect(await readPage('v1.0.0')).toBe(page(renderStorageWrapperScriptTag({ namespace: deployedNamespace })));
     expect(await readPage('v0.9.0')).toBe(page(''));
   });
 });

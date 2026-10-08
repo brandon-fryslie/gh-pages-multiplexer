@@ -32315,8 +32315,8 @@ function validateWidgetColor(raw) {
 /** What placing the current nav widget or storage wrapper did to one page. */
 const PLACEMENTS = ['inserted', 'refreshed', 'current'];
 
-// [LAW:single-enforcer] The one place that finds a slot's pages and re-renders a script block this action
-//   owns inside a page. The nav widget and the storage wrapper both place their blocks through it.
+// [LAW:single-enforcer] The one place that re-renders a script block this action owns inside a page.
+//   The nav widget and the storage wrapper both find a slot's pages and place their blocks through it.
 // [LAW:no-defensive-null-guards] fs errors propagate; only a slot with no directory reads as zero pages.
 async function findHtmlFiles$2(dir) {
     const results = [];
@@ -32346,18 +32346,19 @@ async function findSlotHtmlFiles(slotDir) {
 }
 const SCRIPT_CLOSE = '</script>';
 /**
- * Replaces the block in `html` that opens with `open` by `block`. Every block this action has ever
- * emitted ends at the first </script> after its opening: each renderer escapes `</` in the values it
- * inlines. Null when the page carries no such block.
+ * Replaces the block in `html` that opens with `open` by `render(existing block)`. Every block this
+ * action has ever emitted ends at the first </script> after its opening: each renderer escapes `</`
+ * in the values it inlines. Null when the page carries no such block.
  */
-function refreshBlock(html, open, block, filePath) {
+function refreshBlock(html, open, render, filePath) {
     const start = html.indexOf(open);
     if (start === -1)
         return null;
     const close = html.indexOf(SCRIPT_CLOSE, start);
     if (close === -1)
         throw new Error(`${filePath}: block opening ${JSON.stringify(open)} has no closing ${SCRIPT_CLOSE}`);
-    const placed = html.slice(0, start) + block + html.slice(close + SCRIPT_CLOSE.length);
+    const end = close + SCRIPT_CLOSE.length;
+    const placed = html.slice(0, start) + render(html.slice(start, end)) + html.slice(end);
     return { html: placed, placement: placed === html ? 'current' : 'refreshed' };
 }
 function emptyPlacementCounts() {
@@ -32827,7 +32828,7 @@ function insertScript(html, scriptTag, filePath) {
 }
 const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
 function placeWidget(html, scriptTag, filePath) {
-    return refreshBlock(html, WIDGET_OPEN, scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
+    return refreshBlock(html, WIDGET_OPEN, () => scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
 }
 /**
  * Walks versionDir recursively and places the current widget in every *.html file: inserted where
@@ -33318,9 +33319,9 @@ function autoNamespace(owner, repo, version) {
 // - Cross-origin iframes are unaffected (they have their own origin)
 function renderWrapperScriptBody(namespace) {
     // NOTE: The namespace is the only user-controlled value. It's a string embedded as
-    // a JSON literal with every `</` escaped, so it can neither break out of the script element
-    // nor end the block before the </script> slot-pages.refreshBlock finds its end at.
-    const NS_LITERAL = JSON.stringify(namespace).replace(/<\//g, '<\\/');
+    // a JSON literal with every `<` escaped, so no `</script` or `<!--` in it can move where the
+    // script element ends, or the </script> slot-pages.refreshBlock finds its end at.
+    const NS_LITERAL = JSON.stringify(namespace).replace(/</g, '\\u003c');
     return `(function(){
 'use strict';
 if (window.__ghPmStorageWrapped) return;
@@ -33416,6 +33417,18 @@ function renderStorageWrapperScriptTag(opts) {
     const body = renderWrapperScriptBody(opts.namespace);
     return `${STORAGE_WRAPPER_MARKER}<script>${body}</script>`;
 }
+// Every wrapper block this action has ever emitted declares its namespace on this line.
+const NS_DECLARATION = /\nvar NS = ("(?:[^"\\\n]|\\.)*");\n/;
+/**
+ * The namespace a deployed wrapper block was rendered with. The page is its record: it is the
+ * prefix the slot's users' data already lives under, so a re-render must keep it.
+ */
+function readStorageWrapperNamespace(block, filePath) {
+    const declaration = NS_DECLARATION.exec(block);
+    if (declaration === null)
+        throw new Error(`${filePath}: storage wrapper block declares no namespace`);
+    return JSON.parse(declaration[1]);
+}
 
 // [LAW:single-enforcer] This module is the only place that places the storage
 //   wrapper script tag into HTML files.
@@ -33423,22 +33436,15 @@ function renderStorageWrapperScriptTag(opts) {
 //   the wrapper: a page carrying a wrapper block has it re-rendered from the current template on
 //   every deploy, and only the slot a deploy opts in gains blocks where its pages have none.
 // [LAW:no-defensive-null-guards] fs errors propagate; we do not swallow failures.
-/**
- * Insert tag as the first child of <head>, or before </head> if no opening tag
- * is found, or wrap the document in a minimal <head> for pathological HTML.
- * [LAW:dataflow-not-control-flow] Three data-driven positions, one insertion op.
- */
+const HEAD_START_TAG = /<head(?=[\s>])[^>]*>/i;
+// A page may omit <head>: the parser then opens the head itself right after the doctype and <html>
+// start tag. Every part is optional, so this matches every document, if only as the empty prefix.
+const PROLOGUE = /^(?:\s|<!--[\s\S]*?-->)*(?:<!doctype[^>]*>)?(?:\s|<!--[\s\S]*?-->)*(?:<html(?=[\s>])[^>]*>)?/i;
+/** Insert tag as the head's first child, so it runs before any script the page carries. */
 function insertAtHeadStart(html, tag) {
-    const headOpen = html.search(/<head[^>]*>/i);
-    if (headOpen !== -1) {
-        const end = html.indexOf('>', headOpen) + 1;
-        return html.slice(0, end) + tag + html.slice(end);
-    }
-    const headClose = html.toLowerCase().lastIndexOf('</head>');
-    if (headClose !== -1) {
-        return html.slice(0, headClose) + tag + html.slice(headClose);
-    }
-    return `<head>${tag}</head>` + html;
+    const start = HEAD_START_TAG.exec(html) ?? PROLOGUE.exec(html);
+    const end = start.index + start[0].length;
+    return html.slice(0, end) + tag + html.slice(end);
 }
 const STORAGE_WRAPPER_OPEN = `${STORAGE_WRAPPER_MARKER}<script>`;
 // [LAW:dataflow-not-control-flow] Coverage is data: it picks what a page without a wrapper block becomes.
@@ -33446,9 +33452,14 @@ const PAGE_WITHOUT_WRAPPER = {
     'every-page': (html, tag) => ({ html: insertAtHeadStart(html, tag), placement: 'inserted' }),
     'wrapped-pages': () => null,
 };
+// A page's wrapper is re-rendered from the current template with the namespace the page already
+// carries: its users' data lives under that prefix, whatever owner/repo spelling this deploy has.
+function rerenderWrapper(filePath) {
+    return (block) => renderStorageWrapperScriptTag({ namespace: readStorageWrapperNamespace(block, filePath) });
+}
 /**
  * Walk `slotDir` recursively and place the current storage wrapper in the *.html files `coverage`
- * selects: inserted where a page has none, replacing the block where an earlier deploy left one.
+ * selects: inserted with `opts` where a page has none, re-rendered where an earlier deploy left one.
  * Files whose block is already current are not rewritten.
  */
 async function placeStorageWrapperInSlot(slotDir, opts, coverage) {
@@ -33456,7 +33467,8 @@ async function placeStorageWrapperInSlot(slotDir, opts, coverage) {
     const counts = emptyPlacementCounts();
     for (const file of await findSlotHtmlFiles(slotDir)) {
         const original = await promises.readFile(file, 'utf8');
-        const placed = refreshBlock(original, STORAGE_WRAPPER_OPEN, tag, file) ?? PAGE_WITHOUT_WRAPPER[coverage](original, tag);
+        const placed = refreshBlock(original, STORAGE_WRAPPER_OPEN, rerenderWrapper(file), file) ??
+            PAGE_WITHOUT_WRAPPER[coverage](original, tag);
         if (placed === null)
             continue;
         if (placed.placement !== 'current')
@@ -33678,8 +33690,8 @@ async function injectWidgetIntoSlots(workdir, siteRoot, slots, customization) {
 }
 /**
  * Place the current storage wrapper in each listed slot. The wrapper installs a Proxy around
- * window.localStorage and window.sessionStorage that prefixes every key with
- * `gh-pm:<owner>/<repo>/<slot>:`.
+ * window.localStorage and window.sessionStorage that prefixes every key with a namespace: the one a
+ * page's wrapper already carries, or `gh-pm:<owner>/<repo>/<slot>:` for a page wrapped now.
  */
 async function placeStorageWrapperInSlots(workdir, repoMeta, slots) {
     const total = emptyPlacementCounts();
@@ -34089,7 +34101,8 @@ async function deploy(config, source) {
 function deploySummary(result) {
     const placed = ({ inserted, refreshed, current }) => `${inserted} inserted, ${refreshed} refreshed, ${current} current`;
     return `Deployed ${result.version} to ${result.url} (${result.outcome}, ${result.attempts} publish attempt(s); ` +
-        `nav widget ${placed(result.widget)}; storage wrapper ${placed(result.storageWrapper)})`;
+        `nav widget ${placed(result.widget)}; ` +
+        `storage wrapper ${placed(result.storageWrapper.pages)}, ${result.storageWrapper.deployedSlot} in ${result.version})`;
 }
 /**
  * Stages 2-4.8: render the complete deployment into `workdir` -- manifest, version content,
@@ -34147,12 +34160,14 @@ async function renderDeployment(workdir, config, sourceRepoDir) {
     });
     // Stage 4.6: Place the current storage wrapper, which namespaces localStorage and sessionStorage so
     // repos on the same *.github.io origin don't collide. namespace-storage decides the deployed slot
-    // only: its pages were just placed and carry no wrapper yet. Every other slot keeps the choice its own
-    // deploy made, recorded in its pages, and only has its wrappers re-rendered.
-    const storageWrapper = await placeStorageWrapperInSlots(workdir, { owner: repoOwner, repo: repoName }, cleanedManifest.versions.map((v) => ({
+    // only: its pages were just placed from the build. Every other slot keeps the choice its own deploy
+    // made, recorded in its pages, and only has its wrappers re-rendered.
+    const deployedSlot = config.namespaceStorage ? 'every-page' : 'wrapped-pages';
+    const storageWrapperPages = await placeStorageWrapperInSlots(workdir, { owner: repoOwner, repo: repoName }, cleanedManifest.versions.map((v) => ({
         slot: v.version,
-        coverage: v.version === context.versionSlot && config.namespaceStorage ? 'every-page' : 'wrapped-pages',
+        coverage: v.version === context.versionSlot ? deployedSlot : 'wrapped-pages',
     })));
+    const storageWrapper = { deployedSlot, pages: storageWrapperPages };
     // Stage 4.7: SEO tags. Canonical URLs on all non-PR versions (pointing at the
     // latest non-PR); noindex on the current PR directory (if this deploy is a PR).
     // [LAW:dataflow-not-control-flow] Always runs. Empty slot list = zero canonicals.

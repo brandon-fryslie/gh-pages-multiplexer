@@ -7,6 +7,7 @@ import {
   STORAGE_WRAPPER_MARKER,
   autoNamespace,
   renderStorageWrapperScriptTag,
+  readStorageWrapperNamespace,
 } from '../src/storage-wrapper.js';
 
 describe('autoNamespace', () => {
@@ -30,10 +31,20 @@ describe('renderStorageWrapperScriptTag', () => {
   });
 
   it('handles special characters safely via JSON.stringify', () => {
-    const tag = renderStorageWrapperScriptTag({ namespace: 'evil"</script>' });
-    // JSON.stringify escapes the quote and every `</` is escaped, so the tag's only </script> is its own
-    expect(tag).toContain('evil\\"<\\/script>');
+    const tag = renderStorageWrapperScriptTag({ namespace: 'evil"</script><!--<script>' });
+    // JSON.stringify escapes the quote and every `<` is escaped, so the tag's only </script> is its own
+    // and its only <!-- is the marker's
+    expect(tag).toContain('evil\\"\\u003c/script>\\u003c!--\\u003cscript>');
     expect(tag.split('</script>')).toHaveLength(2);
+    expect(tag.split('<!--')).toHaveLength(2);
+  });
+});
+
+describe('readStorageWrapperNamespace', () => {
+  it('reads back the namespace a block was rendered with', () => {
+    for (const namespace of ['gh-pm:o/r/v1:', 'evil"</script><!--\\']) {
+      expect(readStorageWrapperNamespace(renderStorageWrapperScriptTag({ namespace }), 'f.html')).toBe(namespace);
+    }
   });
 });
 

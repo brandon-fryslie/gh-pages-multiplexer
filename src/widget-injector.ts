@@ -501,7 +501,7 @@ function insertScript(html: string, scriptTag: string, filePath: string): string
 const WIDGET_OPEN = `<script>${WIDGET_MARKER}`;
 
 function placeWidget(html: string, scriptTag: string, filePath: string): PlacedPage {
-  return refreshBlock(html, WIDGET_OPEN, scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
+  return refreshBlock(html, WIDGET_OPEN, () => scriptTag, filePath) ?? { html: insertScript(html, scriptTag, filePath), placement: 'inserted' };
 }
 
 /**
