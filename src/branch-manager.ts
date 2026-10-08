@@ -16,20 +16,16 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, RenamedSlot, SitemapCoverage, SlotRename, SourceRepo, WrapperCoverage } from './types.js';
+import type { DeploymentContext, GitConfig, Manifest, PlacementCounts, Remote, PageCopies, RenamedSlot, SlotPages, SlotRename, SourceRepo, WrapperCoverage } from './types.js';
 import { renderIndexHtml, renderRedirectHtml, type RepoMeta } from './index-renderer.js';
 import { injectWidgetIntoHtmlFiles } from './widget-injector.js';
 import { rebaseUrls } from './base-path.js';
 import { emptyPlacementCounts, addPlacementCounts, findHtmlFilesRelative, findSlotHtmlFiles } from './slot-pages.js';
 import { renderRobotsTxt } from './robots-generator.js';
-import {
-  latestNonPrSlot,
-  renderEmptySitemap,
-  renderSitemapXml,
-} from './sitemap-generator.js';
+import { renderSitemapXml } from './sitemap-generator.js';
 import { renderHealth, serializeHealth } from './health-generator.js';
 import { renderStatsHtml } from './stats-renderer.js';
-import { injectCanonicalIntoDir, injectNoindexIntoDir } from './seo-injector.js';
+import { injectCanonicalTags, injectNoindexIntoDir } from './seo-injector.js';
 import { placeStorageWrapperInSlot } from './storage-wrapper-injector.js';
 import { autoNamespace } from './storage-wrapper.js';
 
@@ -381,27 +377,23 @@ export async function writeRobotsTxt(
 }
 
 /**
- * Write sitemap.xml at the worktree root. URLs point at the latest non-PR
- * version's HTML files. If no non-PR version exists, an empty urlset is emitted.
+ * The pages of each slot in `slots`, in the given order. A slot with no directory has no pages.
+ */
+export async function readSlotPages(workdir: string, slots: readonly string[]): Promise<SlotPages[]> {
+  return Promise.all(slots.map(async (slot) => ({ slot, pages: await findHtmlFilesRelative(path.join(workdir, slot)) })));
+}
+
+/**
+ * Write sitemap.xml at the worktree root, listing the canonical copy of every page in `copies`.
+ * No non-PR version means no copies and an empty urlset.
  */
 export async function writeSitemapXml(
   workdir: string,
-  manifest: Manifest,
+  copies: readonly PageCopies[],
   baseUrl: string,
   lastmod: string,
-): Promise<SitemapCoverage> {
-  const slot = latestNonPrSlot(manifest);
-  let xml: string;
-  let urls = 0;
-  if (slot === null) {
-    xml = renderEmptySitemap();
-  } else {
-    const relPaths = await findHtmlFilesRelative(path.join(workdir, slot));
-    xml = renderSitemapXml(baseUrl, slot, relPaths, lastmod);
-    urls = relPaths.length;
-  }
-  await writeFile(path.join(workdir, 'sitemap.xml'), xml, 'utf8');
-  return { slot, urls };
+): Promise<void> {
+  await writeFile(path.join(workdir, 'sitemap.xml'), renderSitemapXml(baseUrl, copies, lastmod), 'utf8');
 }
 
 /**
@@ -432,39 +424,23 @@ export async function writeStatsHtml(
 }
 
 /**
- * Inject/update canonical URLs into every non-PR version directory, pointing at
- * the latest non-PR version's equivalent page, or at the page itself when the
- * latest version has no such page. For PR directories, inject noindex instead.
- * `siteBase` is the absolute site URL (e.g., "https://example.com/repo");
- * `canonicalSlot` is the slot canonicals point at, null when no non-PR version exists.
- *
- * Data-driven: caller decides which directories to process via `nonPrSlots`
- * and which PR directory to noindex via `currentPrSlot` (null when current
- * deploy is non-PR).
+ * Inject/update canonical URLs on every copy of every page in `copies`, pointing at the page's
+ * canonical copy (see groupPageCopies). For the current PR directory, inject noindex instead.
+ * `siteBase` is the absolute site URL (e.g., "https://example.com/repo"); `currentPrSlot` is null
+ * when the current deploy is non-PR.
  */
 export async function applySeoTags(
   workdir: string,
-  nonPrSlots: string[],
+  copies: readonly PageCopies[],
   siteBase: string,
-  canonicalSlot: string | null,
   currentPrSlot: string | null,
-): Promise<{ canonicalCount: number; selfCanonicalCount: number; noindexCount: number }> {
-  let canonicalCount = 0;
-  let selfCanonicalCount = 0;
-  // [LAW:dataflow-not-control-flow] When canonicalSlot is null, nonPrSlots
-  //   should be empty (caller ensures); loop trivially finishes with 0.
-  if (canonicalSlot !== null) {
-    const canonical = { slot: canonicalSlot, pages: new Set(await findHtmlFilesRelative(path.join(workdir, canonicalSlot))) };
-    for (const slot of nonPrSlots) {
-      const counts = await injectCanonicalIntoDir(workdir, slot, siteBase, canonical);
-      canonicalCount += counts.written;
-      selfCanonicalCount += counts.selfCanonical;
-    }
-  }
+): Promise<{ canonicalCount: number; noindexCount: number }> {
+  // [LAW:dataflow-not-control-flow] No non-PR version means no copies; the walk finishes with 0.
+  const canonicalCount = await injectCanonicalTags(workdir, siteBase, copies);
   let noindexCount = 0;
   if (currentPrSlot !== null) {
     const prDir = path.join(workdir, currentPrSlot);
     noindexCount = await injectNoindexIntoDir(prDir);
   }
-  return { canonicalCount, selfCanonicalCount, noindexCount };
+  return { canonicalCount, noindexCount };
 }

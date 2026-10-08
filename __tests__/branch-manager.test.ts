@@ -10,7 +10,8 @@ vi.mock('@actions/core', () => ({
   setSecret: vi.fn(),
 }));
 
-import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, writeSitemapXml, applySeoTags, injectWidgetIntoSlots, placeStorageWrapperInSlots, renameVersionDirectories } from '../src/branch-manager.js';
+import { groupPageCopies } from '../src/seo-injector.js';
+import { githubRemote, staleTipRejection, readCnameFile, writeIndexHtml, writeSitemapXml, applySeoTags, readSlotPages, injectWidgetIntoSlots, placeStorageWrapperInSlots, renameVersionDirectories } from '../src/branch-manager.js';
 import { STORAGE_WRAPPER_MARKER, autoNamespace, renderStorageWrapperScriptTag } from '../src/storage-wrapper.js';
 import { WIDGET_MARKER, getWidgetScriptTag } from '../src/widget-injector.js';
 import { placeContent } from '../src/content-placer.js';
@@ -333,6 +334,31 @@ describe('placeStorageWrapperInSlots', () => {
   });
 });
 
+describe('readSlotPages', () => {
+  let workdir: string;
+  beforeEach(async () => {
+    workdir = await mkdtemp(path.join(tmpdir(), 'bm-pages-'));
+  });
+  afterEach(async () => {
+    await rm(workdir, { recursive: true, force: true });
+  });
+
+  it('reads each slot\'s pages in the given order; a slot with no directory has none', async () => {
+    await mkdir(path.join(workdir, 'v2', 'docs'), { recursive: true });
+    await writeFile(path.join(workdir, 'v2', 'docs', 'api.html'), '');
+    await writeFile(path.join(workdir, 'v2', 'notes.txt'), '');
+    expect(await readSlotPages(workdir, ['v2', 'v1'])).toEqual([
+      { slot: 'v2', pages: ['docs/api.html'] },
+      { slot: 'v1', pages: [] },
+    ]);
+  });
+
+  it('propagates fs errors other than a missing slot directory', async () => {
+    await writeFile(path.join(workdir, 'not-a-dir'), '');
+    await expect(readSlotPages(workdir, ['not-a-dir'])).rejects.toMatchObject({ code: 'ENOTDIR' });
+  });
+});
+
 describe('writeSitemapXml', () => {
   let workdir: string;
   beforeEach(async () => {
@@ -342,22 +368,11 @@ describe('writeSitemapXml', () => {
     await rm(workdir, { recursive: true, force: true });
   });
 
-  const entry = (version: string) => ({ version, ref: `refs/tags/${version}`, sha: 'abc', timestamp: '2026-04-06T00:00:00Z' });
-
-  it('writes encoded URLs for the latest non-PR slot and reports how many', async () => {
-    await mkdir(path.join(workdir, 'v2', 'my docs'), { recursive: true });
-    await writeFile(path.join(workdir, 'v2', 'index.html'), '');
-    await writeFile(path.join(workdir, 'v2', 'my docs', 'a b.html'), '');
-    const manifest: Manifest = { schema: 2, versions: [entry('pr-3'), entry('v2'), entry('v1')] };
-    const coverage = await writeSitemapXml(workdir, manifest, 'https://example.com/repo', '2026-04-06T12:00:00Z');
+  it('writes the encoded URL of each page\'s canonical copy', async () => {
+    await writeSitemapXml(workdir, [{ page: 'my docs/a b.html', versions: ['v2', 'v1'] }], 'https://example.com/repo', '2026-04-06T12:00:00Z');
     const xml = await fsReadFile(path.join(workdir, 'sitemap.xml'), 'utf8');
     expect(xml).toContain('<loc>https://example.com/repo/v2/my%20docs/a%20b.html</loc>');
-    expect(coverage).toEqual({ slot: 'v2', urls: 2 });
-  });
-
-  it('reports no slot and zero URLs when no non-PR version exists', async () => {
-    const coverage = await writeSitemapXml(workdir, { schema: 2, versions: [entry('pr-3')] }, 'https://example.com', '2026-04-06T12:00:00Z');
-    expect(coverage).toEqual({ slot: null, urls: 0 });
+    expect(xml).not.toContain('/v1/');
   });
 });
 
@@ -370,30 +385,35 @@ describe('applySeoTags', () => {
     await rm(workdir, { recursive: true, force: true });
   });
 
-  it('points every non-PR page at the same page of the canonical slot under the site base', async () => {
-    for (const slot of ['v1', 'v2']) {
-      await mkdir(path.join(workdir, slot), { recursive: true });
-      await writeFile(path.join(workdir, slot, 'a b.html'), '<html><head></head><body></body></html>');
+  const html = '<html><head></head><body></body></html>';
+  async function writePage(slot: string, rel: string): Promise<void> {
+    await mkdir(path.dirname(path.join(workdir, slot, rel)), { recursive: true });
+    await writeFile(path.join(workdir, slot, rel), html);
+  }
+
+  it('points every copy of a page at its newest non-PR copy, never at a version that lacks it', async () => {
+    await writePage('v2', 'a b.html');
+    for (const slot of ['v1', 'v1.1']) {
+      await writePage(slot, 'a b.html');
+      await writePage(slot, 'docs/old.html');
     }
-    const counts = await applySeoTags(workdir, ['v1', 'v2'], 'https://example.com/repo', 'v2', null);
-    expect(counts).toEqual({ canonicalCount: 2, selfCanonicalCount: 0, noindexCount: 0 });
-    for (const slot of ['v1', 'v2']) {
+    const copies = groupPageCopies(await readSlotPages(workdir, ['v2', 'v1.1', 'v1']));
+    expect(await applySeoTags(workdir, copies, 'https://example.com/repo', null)).toEqual({ canonicalCount: 5, noindexCount: 0 });
+    for (const slot of ['v1', 'v1.1', 'v2']) {
       expect(await fsReadFile(path.join(workdir, slot, 'a b.html'), 'utf8')).toContain(
         '<link rel="canonical" href="https://example.com/repo/v2/a%20b.html">',
       );
     }
+    for (const slot of ['v1', 'v1.1']) {
+      expect(await fsReadFile(path.join(workdir, slot, 'docs', 'old.html'), 'utf8')).toContain(
+        '<link rel="canonical" href="https://example.com/repo/v1.1/docs/old.html">',
+      );
+    }
   });
 
-  it('points a page the canonical slot removed at itself, never at a missing page', async () => {
-    await mkdir(path.join(workdir, 'v1', 'docs'), { recursive: true });
-    await mkdir(path.join(workdir, 'v2'), { recursive: true });
-    await writeFile(path.join(workdir, 'v1', 'docs', 'old.html'), '<html><head></head><body></body></html>');
-    await writeFile(path.join(workdir, 'v2', 'index.html'), '<html><head></head><body></body></html>');
-    const counts = await applySeoTags(workdir, ['v1', 'v2'], 'https://example.com/repo', 'v2', null);
-    expect(counts).toEqual({ canonicalCount: 2, selfCanonicalCount: 1, noindexCount: 0 });
-    const html = await fsReadFile(path.join(workdir, 'v1', 'docs', 'old.html'), 'utf8');
-    expect(html).toContain('<link rel="canonical" href="https://example.com/repo/v1/docs/old.html">');
-    expect(html).not.toContain('/v2/docs/old.html');
+  it('noindexes the current PR directory', async () => {
+    await writePage('pr-3', 'index.html');
+    expect(await applySeoTags(workdir, [], 'https://example.com/repo', 'pr-3')).toEqual({ canonicalCount: 0, noindexCount: 1 });
   });
 });
 

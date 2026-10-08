@@ -136,8 +136,25 @@ export interface DeployResult {
   sitemap: SitemapCoverage;
 }
 
-/** What sitemap.xml lists: the pages of one slot, or nothing when no non-PR version exists. */
+/** The pages of one version slot, as slot-relative paths (e.g. "docs/api.html"). */
+export interface SlotPages {
+  slot: string;
+  pages: readonly string[];
+}
+
+/** One page path and every non-PR version that has it, newest first: `versions[0]` holds the canonical copy. */
+export interface PageCopies {
+  page: string;
+  versions: readonly [string, ...string[]];
+}
+
+/**
+ * What sitemap.xml lists: one canonical URL per page path of the non-PR versions, the canonical tags'
+ * target. `latest` is the newest non-PR version, null when none exists; `fromOlderVersions` counts the
+ * URLs of pages the latest lacks, canonical in the newest older version that has them.
+ */
 export interface SitemapCoverage {
-  slot: string | null;
+  latest: string | null;
   urls: number;
+  fromOlderVersions: number;
 }

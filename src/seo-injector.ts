@@ -8,7 +8,8 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import * as core from '@actions/core';
-import { findHtmlFilesRelative, findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import { findSlotHtmlFiles, slotPageUrl } from './slot-pages.js';
+import type { PageCopies, SitemapCoverage, SlotPages } from './types.js';
 
 export const CANONICAL_MARKER = '<!-- gh-pages-multiplexer:canonical -->';
 export const NOINDEX_MARKER = '<!-- gh-pages-multiplexer:noindex -->';
@@ -49,54 +50,64 @@ function insertInHead(html: string, tag: string): string {
   return `<head>${tag}</head>` + html;
 }
 
-/** The slot canonicals point at, and the slot-relative paths of the pages it has. */
-export interface CanonicalSlot {
-  slot: string;
-  pages: ReadonlySet<string>;
+/**
+ * Group the pages of the non-PR versions, given newest first, by page path. Each path lists every
+ * version that has it, newest first, so its canonical copy is `versions[0]`: the newest version that
+ * has the page. A page every newer version dropped is thereby canonical in the newest version that
+ * kept it, never pointed at a URL that does not exist and never one of several self-declared copies.
+ */
+export function groupPageCopies(newestFirst: readonly SlotPages[]): PageCopies[] {
+  const copies = new Map<string, [string, ...string[]]>();
+  for (const { slot, pages } of newestFirst) {
+    for (const page of pages) {
+      const versions = copies.get(page);
+      if (versions) versions.push(slot);
+      else copies.set(page, [slot]);
+    }
+  }
+  return [...copies].map(([page, versions]) => ({ page, versions }));
 }
 
-export interface CanonicalCounts {
-  /** Files whose canonical tag was added or changed. */
-  written: number;
-  /** Pages with no counterpart in the canonical slot, canonicalized to themselves. */
-  selfCanonical: number;
+/** What the canonical tags and sitemap.xml say about `copies`, whose newest non-PR version is `latest`. */
+export function sitemapCoverage(latest: string | null, copies: readonly PageCopies[]): SitemapCoverage {
+  return {
+    latest,
+    urls: copies.length,
+    fromOlderVersions: copies.filter(({ versions }) => versions[0] !== latest).length,
+  };
 }
 
 /**
- * Inject or update the canonical tag on every HTML file of `slot` (under `workdir`). A page points at
- * the same page in `canonical` when that slot has it, and at itself otherwise: a canonical naming a
- * page that does not exist tells crawlers to drop the only live copy. Idempotent: existing gh-pm
- * canonicals are replaced; user-authored canonicals are respected (skipped).
+ * Inject or update the canonical tag on every copy of every page in `copies` (under `workdir`),
+ * pointing at the page's canonical copy under `siteBase`. Idempotent: existing gh-pm canonicals are
+ * replaced; user-authored canonicals are respected (skipped).
+ *
+ * Returns the count of files mutated.
  */
-export async function injectCanonicalIntoDir(
+export async function injectCanonicalTags(
   workdir: string,
-  slot: string,
   siteBase: string,
-  canonical: CanonicalSlot,
-): Promise<CanonicalCounts> {
-  const versionDir = path.join(workdir, slot);
-  const relPaths = await findHtmlFilesRelative(versionDir);
-  const counts: CanonicalCounts = { written: 0, selfCanonical: 0 };
-  for (const rel of relPaths) {
-    const file = path.join(versionDir, rel);
-    // [LAW:dataflow-not-control-flow] Every page gets a canonical; only its target slot varies.
-    const targetSlot = canonical.pages.has(rel) ? canonical.slot : slot;
-    if (targetSlot !== canonical.slot) counts.selfCanonical++;
-    const tag = buildCanonicalTag(slotPageUrl(siteBase, targetSlot, rel));
+  copies: readonly PageCopies[],
+): Promise<number> {
+  let count = 0;
+  for (const { page, versions } of copies) {
+    const tag = buildCanonicalTag(slotPageUrl(siteBase, versions[0], page));
+    for (const slot of versions) {
+      const file = path.join(workdir, slot, page);
+      const original = await readFile(file, 'utf8');
+      // Remove any of our previously-injected canonicals (handles update-on-latest-change).
+      const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
+      // If the user authored their own canonical, respect it — don't inject ours.
+      const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
+      const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
 
-    const original = await readFile(file, 'utf8');
-    // Remove any of our previously-injected canonicals (handles update-on-latest-change).
-    const stripped = original.replace(EXISTING_CANONICAL_BLOCK_RE, '');
-    // If the user authored their own canonical, respect it — don't inject ours.
-    const hasUserCanonical = USER_CANONICAL_RE.test(stripped);
-    const next = hasUserCanonical ? stripped : insertInHead(stripped, tag);
-
-    if (next !== original) {
-      await writeFile(file, next, 'utf8');
-      counts.written++;
+      if (next !== original) {
+        await writeFile(file, next, 'utf8');
+        count++;
+      }
     }
   }
-  return counts;
+  return count;
 }
 
 /**

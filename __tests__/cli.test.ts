@@ -32,7 +32,7 @@ beforeEach(() => {
     attempts: 1,
     widget: { inserted: 1, refreshed: 0, current: 0 },
     storageWrapper: { deployedSlot: 'wrapped-pages', pages: { inserted: 0, refreshed: 0, current: 0 } },
-    sitemap: { slot: 'v1.0.0', urls: 1 },
+    sitemap: { latest: 'v1.0.0', urls: 1, fromOlderVersions: 0 },
   });
 });
 
@@ -65,11 +65,11 @@ describe('cli main()', () => {
       attempts: 2,
       widget: { inserted: 3, refreshed: 40, current: 5 },
       storageWrapper: { deployedSlot: 'every-page', pages: { inserted: 1, refreshed: 7, current: 2 } },
-      sitemap: { slot: 'v1.0.0', urls: 12 },
+      sitemap: { latest: 'v1.0.0', urls: 12, fromOlderVersions: 3 },
     });
     expect(await main(FULL_ARGV, { GITHUB_TOKEN: 'ghs_xxx' })).toBe(0);
     expect(stdout()).toBe(
-      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s) from v1.0.0; renamed 0 slot(s))\n',
+      'Deployed v1.0.0 to https://owner.github.io/name/v1.0.0/ (pushed, 2 publish attempt(s); nav widget 3 inserted, 40 refreshed, 5 current; storage wrapper 1 inserted, 7 refreshed, 2 current, every-page in v1.0.0; sitemap 12 URL(s): 9 from v1.0.0, 3 from older versions; renamed 0 slot(s))\n',
     );
   });
 

@@ -81,8 +81,8 @@ describe('cli deploy against a real remote', () => {
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed '))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
-      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 0 slot(s))\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 1 inserted, 0 refreshed, 0 current, every-page in v1.0.0; sitemap 1 URL(s): 1 from v1.0.0, 0 from older versions; renamed 0 slot(s))\n',
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 1 current; storage wrapper 0 inserted, 0 refreshed, 1 current, wrapped-pages in v2.0.0; sitemap 1 URL(s): 1 from v2.0.0, 0 from older versions; renamed 0 slot(s))\n',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
     expect(await shown('v1.0.0/index.html')).toContain('"gh-pm:owner/repo/v1.0.0:"');
@@ -104,8 +104,8 @@ describe('cli deploy against a real remote', () => {
 
     // The second deploy re-places v1.0.0's content, so its one page gets the widget inserted again.
     expect(output.filter((line) => line.startsWith('Deployed v1.0.0'))).toEqual([
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
-      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s) from v1.0.0; renamed 0 slot(s))\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s): 1 from v1.0.0, 0 from older versions; renamed 0 slot(s))\n',
+      'Deployed v1.0.0 to https://owner.github.io/repo/v1.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v1.0.0; sitemap 1 URL(s): 1 from v1.0.0, 0 from older versions; renamed 0 slot(s))\n',
     ]);
     expect(output.filter((line) => line.includes(TOKEN))).toEqual([]);
     expect(await readFile(path.join(clone, '.git', 'config'))).toEqual(configBefore);
@@ -143,12 +143,41 @@ describe('cli deploy against a real remote', () => {
     expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
 
     expect(output.filter((line) => line.startsWith('Deployed v2.0.0'))).toEqual([
-      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 1 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 1 URL(s) from v2.0.0; renamed 1 slot(s) v1#rc -> v1~23rc (1 page(s) rebased))\n',
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 1 refreshed, 0 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 1 URL(s): 1 from v2.0.0, 0 from older versions; renamed 1 slot(s) v1#rc -> v1~23rc (1 page(s) rebased))\n',
     ]);
     const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
     expect(await shown('v1~23rc/index.html')).toContain('<base href="/repo/v1~23rc/">');
     expect(await git(root, '--git-dir', remote, 'ls-tree', '--name-only', 'gh-pages')).not.toContain('v1#rc');
     expect(JSON.parse(await shown('versions.json')).versions.map((v: { version: string }) => v.version)).toEqual(['v2.0.0', 'v1~23rc']);
     expect(await shown('_versions/index.html')).toContain('<a href="../v1~23rc/">');
+  });
+
+  it('canonicalizes a page the latest version dropped to the newest version that still has it, and lists it in the sitemap', async () => {
+    const site = path.join(root, 'site');
+    await mkdir(path.join(site, 'docs'), { recursive: true });
+    const page = '<html><head></head><body>site</body></html>';
+    await writeFile(path.join(site, 'index.html'), page);
+    await writeFile(path.join(site, 'docs', 'old.html'), page);
+    const deployRef = (ref: string): Promise<number> =>
+      main(['deploy', `--source-dir=${site}`, '--repo=owner/repo', `--ref=${ref}`], { GITHUB_TOKEN: TOKEN });
+    expect(await deployRef('refs/tags/v1.0.0')).toBe(0);
+    expect(await deployRef('refs/tags/v1.1.0')).toBe(0);
+    await rm(path.join(site, 'docs'), { recursive: true });
+    expect(await deployRef('refs/tags/v2.0.0')).toBe(0);
+
+    expect(output.filter((line) => line.startsWith('Deployed v2.0.0'))).toEqual([
+      'Deployed v2.0.0 to https://owner.github.io/repo/v2.0.0/ (pushed, 1 publish attempt(s); nav widget 1 inserted, 0 refreshed, 4 current; storage wrapper 0 inserted, 0 refreshed, 0 current, wrapped-pages in v2.0.0; sitemap 2 URL(s): 1 from v2.0.0, 1 from older versions; renamed 0 slot(s))\n',
+    ]);
+    const shown = (file: string): Promise<string> => git(root, '--git-dir', remote, 'show', `gh-pages:${file}`);
+    const canonical = (url: string): string => `<link rel="canonical" href="${url}">`;
+    for (const slot of ['v1.0.0', 'v1.1.0']) {
+      expect(await shown(`${slot}/docs/old.html`)).toContain(canonical('https://owner.github.io/repo/v1.1.0/docs/old.html'));
+      expect(await shown(`${slot}/index.html`)).toContain(canonical('https://owner.github.io/repo/v2.0.0/index.html'));
+    }
+    const locs = [...(await shown('sitemap.xml')).matchAll(/<loc>([^<]*)<\/loc>/g)].map((m) => m[1]);
+    expect(locs.sort()).toEqual([
+      'https://owner.github.io/repo/v1.1.0/docs/old.html',
+      'https://owner.github.io/repo/v2.0.0/index.html',
+    ]);
   });
 });

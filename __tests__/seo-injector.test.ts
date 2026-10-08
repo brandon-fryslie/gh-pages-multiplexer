@@ -11,7 +11,9 @@ vi.mock('@actions/core', () => ({
 import {
   CANONICAL_MARKER,
   NOINDEX_MARKER,
-  injectCanonicalIntoDir,
+  groupPageCopies,
+  injectCanonicalTags,
+  sitemapCoverage,
   injectNoindexIntoDir,
 } from '../src/seo-injector.js';
 
@@ -24,44 +26,72 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe('injectCanonicalIntoDir', () => {
+describe('groupPageCopies', () => {
+  it('lists every version that has a page path, newest first, so the newest copy is canonical', () => {
+    const copies = groupPageCopies([
+      { slot: 'v3', pages: ['index.html'] },
+      { slot: 'v2', pages: ['index.html', 'docs/old.html'] },
+      { slot: 'v1', pages: ['index.html', 'docs/old.html', 'docs/older.html'] },
+    ]);
+    expect(copies).toEqual([
+      { page: 'index.html', versions: ['v3', 'v2', 'v1'] },
+      { page: 'docs/old.html', versions: ['v2', 'v1'] },
+      { page: 'docs/older.html', versions: ['v1'] },
+    ]);
+  });
+
+  it('has no copies when there are no non-PR versions', () => {
+    expect(groupPageCopies([])).toEqual([]);
+  });
+});
+
+describe('sitemapCoverage', () => {
+  it('counts one URL per page path, and those whose canonical copy is older than the latest', () => {
+    const copies = groupPageCopies([
+      { slot: 'v2', pages: ['index.html'] },
+      { slot: 'v1', pages: ['index.html', 'docs/old.html'] },
+    ]);
+    expect(sitemapCoverage('v2', copies)).toEqual({ latest: 'v2', urls: 2, fromOlderVersions: 1 });
+  });
+
+  it('reports no latest and zero URLs when no non-PR version exists', () => {
+    expect(sitemapCoverage(null, [])).toEqual({ latest: null, urls: 0, fromOlderVersions: 0 });
+  });
+});
+
+describe('injectCanonicalTags', () => {
   const page = '<html><head><title>x</title></head><body>hi</body></html>';
-  const latest = (slot: string, ...pages: string[]) => ({ slot, pages: new Set(pages) });
   async function writePage(slot: string, rel: string, html = page): Promise<string> {
     const file = path.join(dir, slot, rel);
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, html);
     return file;
   }
+  const copy = (page: string, ...versions: [string, ...string[]]) => ({ page, versions });
 
-  it('points a page at the same page in the canonical slot', async () => {
-    const file = await writePage('v1', 'index.html');
-    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2.0.0', 'index.html'));
-    expect(counts).toEqual({ written: 1, selfCanonical: 0 });
-    const html = await readFile(file, 'utf8');
-    expect(html).toContain(CANONICAL_MARKER);
-    expect(html).toContain('<link rel="canonical" href="https://example.com/v2.0.0/index.html">');
+  it('points every copy of a page at its canonical copy, including the canonical copy itself', async () => {
+    const files = [await writePage('v2.0.0', 'index.html'), await writePage('v1', 'index.html')];
+    expect(await injectCanonicalTags(dir, 'https://example.com', [copy('index.html', 'v2.0.0', 'v1')])).toBe(2);
+    for (const file of files) {
+      const html = await readFile(file, 'utf8');
+      expect(html).toContain(CANONICAL_MARKER);
+      expect(html).toContain('<link rel="canonical" href="https://example.com/v2.0.0/index.html">');
+    }
   });
 
   it('uses relative path in canonical URL for nested files', async () => {
     const file = await writePage('v1', 'docs/api.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'docs/api.html'));
+    await writePage('v2', 'docs/api.html');
+    await injectCanonicalTags(dir, 'https://example.com', [copy('docs/api.html', 'v2', 'v1')]);
     expect(await readFile(file, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v2/docs/api.html">');
   });
 
-  it('points a page the canonical slot does not have at itself', async () => {
-    const kept = await writePage('v1', 'index.html');
-    const removed = await writePage('v1', 'docs/old.html');
-    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
-    expect(counts).toEqual({ written: 2, selfCanonical: 1 });
-    expect(await readFile(kept, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v2/index.html">');
-    expect(await readFile(removed, 'utf8')).toContain('<link rel="canonical" href="https://example.com/v1/docs/old.html">');
-  });
-
-  it('repoints a page at itself when the canonical slot drops it', async () => {
+  it('repoints a page at its newest remaining copy when the canonical version drops it', async () => {
     const file = await writePage('v1', 'old.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'old.html'));
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v3'));
+    await writePage('v2', 'old.html');
+    await injectCanonicalTags(dir, 'https://example.com', [copy('old.html', 'v2', 'v1')]);
+    await rm(path.join(dir, 'v2'), { recursive: true });
+    await injectCanonicalTags(dir, 'https://example.com', [copy('old.html', 'v1')]);
     const html = await readFile(file, 'utf8');
     expect(html).toContain('https://example.com/v1/old.html');
     expect(html).not.toContain('https://example.com/v2/old.html');
@@ -70,58 +100,35 @@ describe('injectCanonicalIntoDir', () => {
 
   it('is idempotent — running twice leaves file unchanged', async () => {
     const file = await writePage('v1', 'index.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
+    await injectCanonicalTags(dir, 'https://example.com', [copy('index.html', 'v1')]);
     const first = await readFile(file, 'utf8');
-    const second = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
-    expect(second).toEqual({ written: 0, selfCanonical: 0 });
+    expect(await injectCanonicalTags(dir, 'https://example.com', [copy('index.html', 'v1')])).toBe(0);
     expect(await readFile(file, 'utf8')).toBe(first);
-  });
-
-  it('updates existing gh-pm canonical when the canonical slot changes', async () => {
-    const file = await writePage('v1', 'index.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v1', 'index.html'));
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
-    const html = await readFile(file, 'utf8');
-    expect(html).toContain('https://example.com/v2/index.html');
-    expect(html).not.toContain('https://example.com/v1/index.html');
-    // Still has exactly one canonical marker.
-    expect(html.match(new RegExp(CANONICAL_MARKER, 'g'))).toHaveLength(1);
   });
 
   it('respects user-authored canonical tags', async () => {
     const original = '<html><head><link rel="canonical" href="https://mysite.com/my-own-url"></head><body></body></html>';
     const file = await writePage('v1', 'index.html', original);
-    const counts = await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2', 'index.html'));
-    expect(counts.written).toBe(0);
+    expect(await injectCanonicalTags(dir, 'https://example.com', [copy('index.html', 'v1')])).toBe(0);
     expect(await readFile(file, 'utf8')).toBe(original);
   });
 
-  it('writes nothing for a slot with no HTML files', async () => {
-    await writePage('v1', 'not-html.txt', 'hello');
-    expect(await injectCanonicalIntoDir(dir, 'v1', 'https://example.com', latest('v2'))).toEqual({ written: 0, selfCanonical: 0 });
+  it('writes nothing when there are no copies', async () => {
+    expect(await injectCanonicalTags(dir, 'https://example.com', [])).toBe(0);
   });
 
   it('percent-encodes page names in the canonical URL; the slot name is URL-safe as written', async () => {
-    const file = await writePage('v1', 'my docs/faq#1.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com/repo', latest('v1-beta', 'my docs/faq#1.html'));
+    const file = await writePage('v1-beta', 'my docs/faq#1.html');
+    await injectCanonicalTags(dir, 'https://example.com/repo', [copy('my docs/faq#1.html', 'v1-beta')]);
     expect(await readFile(file, 'utf8')).toContain('<link rel="canonical" href="https://example.com/repo/v1-beta/my%20docs/faq%231.html">');
   });
 
   it('escapes quotes in URLs', async () => {
     const file = await writePage('v1', 'index.html');
-    await injectCanonicalIntoDir(dir, 'v1', 'https://example.com/"evil', latest('v1', 'index.html'));
+    await injectCanonicalTags(dir, 'https://example.com/"evil', [copy('index.html', 'v1')]);
     const html = await readFile(file, 'utf8');
     expect(html).toContain('&quot;');
     expect(html).not.toMatch(/href="[^"]*"evil/);
-  });
-
-  it('writes nothing for a slot with no directory', async () => {
-    expect(await injectCanonicalIntoDir(dir, 'missing', 'https://example.com', latest('v1'))).toEqual({ written: 0, selfCanonical: 0 });
-  });
-
-  it('propagates fs errors other than a missing slot directory', async () => {
-    await writeFile(path.join(dir, 'not-a-dir'), '');
-    await expect(injectCanonicalIntoDir(dir, 'not-a-dir', 'https://example.com', latest('v1'))).rejects.toMatchObject({ code: 'ENOTDIR' });
   });
 });
 
