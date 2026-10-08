@@ -39049,7 +39049,9 @@ function gitFailure(args, out) {
     return new Error(`git ${args.join(' ')} failed (exit ${out.exitCode}): ${out.stderr.trim()}`);
 }
 /**
- * The one way git is run. Silent, so a command line is never echoed to stdout; never prompts, since a
+ * The one way git is run. Nothing is written to stdin: git can exit before reading it, and the
+ * resulting EPIPE is raised on a stream @actions/exec gives no way to handle -- an uncaught
+ * exception. Silent, so a command line is never echoed to stdout; never prompts, since a
  * prompt nobody sees is a hang. `config` travels in GIT_CONFIG_* -- visible only to this process and
  * its children, unlike `-c` arguments, which any local user can read in the process table.
  */
@@ -39060,7 +39062,6 @@ function runGit(cwd, args, { config = [], env = {} } = {}) {
         cwd,
         ignoreReturnCode: true,
         silent: true,
-        input: Buffer.alloc(0), // stdin closed: mktree reads its (empty) tree from it
         env: { ...process.env, GIT_TERMINAL_PROMPT: '0', ...configEnv, GIT_CONFIG_COUNT: String(inherited + config.length), ...env },
     });
 }
@@ -39081,6 +39082,16 @@ async function git(cwd, args, run = {}) {
         throw gitFailure(args, out);
     return out.stdout.trim();
 }
+/** Writes the empty tree from an index that does not exist yet, so no stdin is needed (see runGit). */
+async function emptyTree(cwd) {
+    const index = path__namespace$1.join(os__namespace$1.tmpdir(), `gh-pages-empty-index-${node_crypto.randomUUID()}`);
+    try {
+        return await git(cwd, ['write-tree'], { env: { GIT_INDEX_FILE: index } });
+    }
+    finally {
+        await promises.rm(index, { force: true });
+    }
+}
 async function resolveBase(source, targetBranch) {
     const { remote } = source;
     const ref = `refs/heads/${targetBranch}`;
@@ -39089,7 +39100,7 @@ async function resolveBase(source, targetBranch) {
     const probe = await gitAnswer(source.dir, ['ls-remote', '--exit-code', remote.url, ref], { 0: true, 2: false }, remote);
     if (!probe.answer) {
         info(`Target branch ${targetBranch} not found on remote; the first deploy creates it.`);
-        return { parents: [], tree: await git(source.dir, ['mktree']) };
+        return { parents: [], tree: await emptyTree(source.dir) };
     }
     // The base is the tip ls-remote saw, fetched by id: no ref and no FETCH_HEAD in the source repo
     // is written or read, so nothing else touching the clone can change what the deploy builds on.
